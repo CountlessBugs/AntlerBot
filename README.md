@@ -2,7 +2,7 @@
 
 一个基于 Python 的 QQ 机器人，通过 NapCat 与 QQ 交互，使用 LangGraph 驱动 LLM 对话回复
 
-## 快速开始
+## 🚀 快速开始
 
 ```bash
 pip install -r requirements.txt
@@ -10,7 +10,7 @@ cp .env.example .env
 python main.py
 ```
 
-## 依赖管理
+## 📦 依赖管理
 
 本项目使用 [pip-tools](https://github.com/jazzband/pip-tools) 管理依赖：
 
@@ -31,7 +31,7 @@ pip-compile --index-url=https://mirrors.aliyun.com/pypi/simple/ --output-file=re
 pip install -r requirements.txt
 ```
 
-## 配置
+## ⚙️ 配置
 
 ```bash
 cp .env.example .env
@@ -54,6 +54,18 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 pip install langchain-anthropic   # Anthropic
 pip install langchain-ollama      # Ollama
 ```
+
+## ⏰ 定时任务
+
+LLM 可通过工具调用创建和取消定时任务，任务持久化存储于 `config/tasks.json`，重启后自动恢复。
+
+支持三种任务类型：
+
+| 类型 | 说明 |
+|------|------|
+| `once` | 指定时间执行一次 |
+| `repeat` | 按 cron 表达式重复执行 |
+| `complex_repeat` | 每次执行后由 LLM 决定下次触发时间或取消 |
 
 ## 📝 许可证
 
