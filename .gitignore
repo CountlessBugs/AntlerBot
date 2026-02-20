@@ -26,3 +26,6 @@ config/agent/prompt.txt
 
 # Pytest
 .pytest_cache/
+
+# Git worktrees
+.worktrees/
