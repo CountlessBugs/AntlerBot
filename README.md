@@ -33,7 +33,27 @@ pip install -r requirements.txt
 
 ## 配置
 
-复制 `.env.example` 为 `.env`，按需修改其中的变量
+```bash
+cp .env.example .env
+cp config/agent/prompt.txt.example config/agent/prompt.txt
+```
+
+编辑 `.env`：
+
+| 变量 | 说明 |
+|------|------|
+| `LLM_PROVIDER` | 模型供应商，如 `openai`、`anthropic`、`ollama` |
+| `LLM_MODEL` | 模型名称，如 `gpt-4o`、`claude-3-5-sonnet-20241022` |
+| `OPENAI_API_KEY` | 对应供应商的 API Key |
+| `OPENAI_BASE_URL` | 可选，自定义 API 端点 |
+
+编辑 `config/agent/prompt.txt` 设置机器人的系统提示词。
+
+使用非 OpenAI 供应商时需安装对应包，例如：
+```bash
+pip install langchain-anthropic   # Anthropic
+pip install langchain-ollama      # Ollama
+```
 
 ## 📝 许可证
 

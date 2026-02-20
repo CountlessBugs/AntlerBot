@@ -9,6 +9,7 @@ logs/
 .env
 config/ncatbot.yaml
 config/prompt.txt
+config/agent/prompt.txt
 
 # Data
 /data/

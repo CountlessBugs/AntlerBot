@@ -1,2 +1,5 @@
 ncatbot
 python-dotenv
+langchain
+langchain-openai
+langgraph
