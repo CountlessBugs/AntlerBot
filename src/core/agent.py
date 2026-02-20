@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from langchain.chat_models import init_chat_model
@@ -15,6 +16,7 @@ DEFAULT_PROMPT = "你是一个QQ机器人"
 _llm = None
 _graph = None
 _history: list[BaseMessage] = []
+_lock = asyncio.Lock()
 
 
 def load_prompt() -> str | None:
@@ -85,9 +87,10 @@ def _ensure_initialized():
 
 async def invoke(human_message: str) -> str:
     global _history
-    _ensure_initialized()
-    _history = _history + [HumanMessage(human_message)]
-    result = await _graph.ainvoke({"messages": _history})
-    response = result["messages"][-1].content
-    _history = _history + [AIMessage(response)]
-    return response
+    async with _lock:
+        _ensure_initialized()
+        _history = _history + [HumanMessage(human_message)]
+        result = await _graph.ainvoke({"messages": _history})
+        response = result["messages"][-1].content
+        _history = _history + [AIMessage(response)]
+        return response

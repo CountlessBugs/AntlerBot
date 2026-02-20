@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import pytest
 import src.core.agent as agent_mod
@@ -10,10 +11,12 @@ def reset_agent_state():
     agent_mod._history = []
     agent_mod._graph = None
     agent_mod._llm = None
+    agent_mod._lock = asyncio.Lock()
     yield
     agent_mod._history = []
     agent_mod._graph = None
     agent_mod._llm = None
+    agent_mod._lock = asyncio.Lock()
 
 
 def test_load_prompt_missing_creates_default(tmp_path, caplog):
@@ -96,3 +99,21 @@ async def test_invoke_passes_history_on_second_call():
         await agent_mod.invoke("msg2")
     second_call_msgs = mock_graph.ainvoke.call_args_list[1][0][0]["messages"]
     assert len(second_call_msgs) == 3  # human, ai, human
+
+
+@pytest.mark.anyio
+async def test_invoke_executes_sequentially():
+    order = []
+
+    async def slow_ainvoke(state):
+        order.append("start")
+        await asyncio.sleep(0)
+        order.append("end")
+        return {"messages": [AIMessage("reply")]}
+
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke.side_effect = slow_ainvoke
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph):
+        await asyncio.gather(agent_mod.invoke("a"), agent_mod.invoke("b"))
+    assert order == ["start", "end", "start", "end"]
