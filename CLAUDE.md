@@ -40,6 +40,10 @@ Key env vars: `LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`.
 
 Non-OpenAI providers require their langchain package (e.g. `langchain-anthropic`). A friendly error message guides installation if missing.
 
+# Future Architecture Plans
+
+See `docs/plans/scheduler-architecture.md` for the planned refactoring to introduce a `scheduler.py` module that centralizes queue, priority, and batching logic across all task sources (user messages, scheduled tasks, auto-initiated conversations).
+
 # Dependency Management
 
 Uses pip-tools. Direct deps in `requirements.in`, locked deps in `requirements.txt`.
