@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+logs/
+*.log
+
+# Config
+.env
+config/ncatbot.yaml
+config/prompt.txt
+
+# Data
+/data/
+
+# NapCat runtime (auto-installed by NcatBot)
+/napcat/
+
+# VS Code
+.vscode/
+.VSCodeCounter/
+
+# Claude Code
+.claude/
+
+# Pytest
+.pytest_cache/
