@@ -14,6 +14,8 @@ anyio==4.12.1
     # via
     #   httpx
     #   openai
+apscheduler==3.11.2
+    # via -r requirements.in
 certifi==2026.1.4
     # via
     #   httpcore
@@ -76,6 +78,8 @@ langgraph-sdk==0.3.6
     # via langgraph
 langsmith==0.7.5
     # via langchain-core
+lunardate==0.2.2
+    # via -r requirements.in
 markdown-it-py==4.0.0
     # via rich
 mdurl==0.1.2
@@ -153,6 +157,10 @@ typing-extensions==4.15.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via pydantic
+tzdata==2025.3
+    # via tzlocal
+tzlocal==5.3.1
+    # via apscheduler
 urllib3==2.6.3
     # via
     #   ncatbot

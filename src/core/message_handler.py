@@ -11,6 +11,13 @@ _pending: list[tuple[str, str, callable]] = []
 _group_name_cache: dict[str, str] = {}
 
 
+def get_current_source() -> dict | None:
+    if _current_source is None:
+        return None
+    type_, id_ = _current_source.split("_", 1)
+    return {"type": type_, "id": id_}
+
+
 def format_message(content: str, nickname: str, group_name: str | None = None) -> str:
     if group_name:
         return f"<sender>{nickname} [群聊-{group_name}]</sender>{content}"

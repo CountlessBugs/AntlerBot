@@ -1,10 +1,13 @@
 import asyncio
 import logging
 import os
+from datetime import datetime
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
-from typing import TypedDict
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+from typing import Annotated, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,7 @@ _llm = None
 _graph = None
 _history: list[BaseMessage] = []
 _lock = asyncio.Lock()
+_tools: list = []
 
 
 def load_prompt() -> str | None:
@@ -35,7 +39,7 @@ def load_prompt() -> str | None:
 
 
 class _State(TypedDict):
-    messages: list[BaseMessage]
+    messages: Annotated[list[BaseMessage], add_messages]
 
 
 _PROVIDER_PACKAGES = {
@@ -51,6 +55,12 @@ _PROVIDER_PACKAGES = {
     "together": "langchain-together",
     "huggingface": "langchain-huggingface",
 }
+
+
+def register_tools(tools: list) -> None:
+    global _tools, _graph
+    _tools = tools
+    _graph = None
 
 
 def _ensure_initialized():
@@ -71,17 +81,29 @@ def _ensure_initialized():
             f"Install it with:\n  pip install {pkg}"
         ) from None
 
+    llm_with_tools = _llm.bind_tools(_tools) if _tools else _llm
+
     def llm_node(state: _State) -> _State:
         msgs = state["messages"]
         if system_prompt:
             msgs = [SystemMessage(system_prompt)] + msgs
-        response = _llm.invoke(msgs)
-        return {"messages": state["messages"] + [response]}
+        response = llm_with_tools.invoke(msgs)
+        return {"messages": [response]}
 
     builder = StateGraph(_State)
     builder.add_node("llm", llm_node)
     builder.add_edge(START, "llm")
-    builder.add_edge("llm", END)
+
+    if _tools:
+        builder.add_node("tools", ToolNode(_tools))
+        builder.add_conditional_edges(
+            "llm",
+            lambda state: "tools" if state["messages"][-1].tool_calls else END,
+        )
+        builder.add_edge("tools", "llm")
+    else:
+        builder.add_edge("llm", END)
+
     _graph = builder.compile()
 
 
@@ -91,6 +113,14 @@ async def invoke(human_message: str) -> str:
         _ensure_initialized()
         _history = _history + [HumanMessage(human_message)]
         result = await _graph.ainvoke({"messages": _history})
-        response = result["messages"][-1].content
-        _history = _history + [AIMessage(response)]
-        return response
+        _history = result["messages"]
+        _history = _history + [SystemMessage(f"当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")]
+        return _history[-2].content
+
+
+async def invoke_bare(messages: list[BaseMessage], schema=None):
+    async with _lock:
+        _ensure_initialized()
+        llm = _llm.with_structured_output(schema) if schema else _llm
+        response = await llm.ainvoke(messages)
+        return response if schema else response.content

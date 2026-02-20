@@ -3,3 +3,5 @@ python-dotenv
 langchain
 langchain-openai
 langgraph
+apscheduler
+lunardate

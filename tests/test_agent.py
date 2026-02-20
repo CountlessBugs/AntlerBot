@@ -77,11 +77,11 @@ async def test_invoke_returns_ai_content():
 @pytest.mark.anyio
 async def test_invoke_accumulates_history():
     mock_graph = AsyncMock()
-    mock_graph.ainvoke.return_value = {"messages": [AIMessage("reply")]}
+    mock_graph.ainvoke.side_effect = lambda s: {"messages": s["messages"] + [AIMessage("reply")]}
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph):
         await agent_mod.invoke("hello")
-    assert len(agent_mod._history) == 2
+    assert len(agent_mod._history) == 3  # human, ai, time system message
     assert isinstance(agent_mod._history[0], HumanMessage)
     assert isinstance(agent_mod._history[1], AIMessage)
 
@@ -89,16 +89,13 @@ async def test_invoke_accumulates_history():
 @pytest.mark.anyio
 async def test_invoke_passes_history_on_second_call():
     mock_graph = AsyncMock()
-    mock_graph.ainvoke.side_effect = [
-        {"messages": [AIMessage("first")]},
-        {"messages": [AIMessage("second")]},
-    ]
+    mock_graph.ainvoke.side_effect = lambda s: {"messages": s["messages"] + [AIMessage("reply")]}
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph):
         await agent_mod.invoke("msg1")
         await agent_mod.invoke("msg2")
     second_call_msgs = mock_graph.ainvoke.call_args_list[1][0][0]["messages"]
-    assert len(second_call_msgs) == 3  # human, ai, human
+    assert len(second_call_msgs) == 4  # human, ai, time system message, human
 
 
 @pytest.mark.anyio
