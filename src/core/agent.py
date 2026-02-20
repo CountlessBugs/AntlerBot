@@ -4,6 +4,7 @@ import os
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
 from typing import TypedDict
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ _llm = None
 _graph = None
 _history: list[BaseMessage] = []
 _lock = asyncio.Lock()
+_tools: list = []
 
 
 def load_prompt() -> str | None:
@@ -53,6 +55,12 @@ _PROVIDER_PACKAGES = {
 }
 
 
+def register_tools(tools: list) -> None:
+    global _tools, _graph
+    _tools = tools
+    _graph = None
+
+
 def _ensure_initialized():
     global _llm, _graph
     if _graph is not None:
@@ -71,17 +79,29 @@ def _ensure_initialized():
             f"Install it with:\n  pip install {pkg}"
         ) from None
 
+    llm_with_tools = _llm.bind_tools(_tools) if _tools else _llm
+
     def llm_node(state: _State) -> _State:
         msgs = state["messages"]
         if system_prompt:
             msgs = [SystemMessage(system_prompt)] + msgs
-        response = _llm.invoke(msgs)
+        response = llm_with_tools.invoke(msgs)
         return {"messages": state["messages"] + [response]}
 
     builder = StateGraph(_State)
     builder.add_node("llm", llm_node)
     builder.add_edge(START, "llm")
-    builder.add_edge("llm", END)
+
+    if _tools:
+        builder.add_node("tools", ToolNode(_tools))
+        builder.add_conditional_edges(
+            "llm",
+            lambda state: "tools" if state["messages"][-1].tool_calls else END,
+        )
+        builder.add_edge("tools", "llm")
+    else:
+        builder.add_edge("llm", END)
+
     _graph = builder.compile()
 
 
@@ -94,3 +114,11 @@ async def invoke(human_message: str) -> str:
         response = result["messages"][-1].content
         _history = _history + [AIMessage(response)]
         return response
+
+
+async def invoke_bare(messages: list[BaseMessage], schema=None):
+    async with _lock:
+        _ensure_initialized()
+        llm = _llm.with_structured_output(schema) if schema else _llm
+        response = await llm.ainvoke(messages)
+        return response if schema else response.content
