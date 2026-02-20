@@ -53,10 +53,19 @@ def _unique_name(name: str, tasks: list[dict]) -> str:
 
 # --- APScheduler ---
 
+def _parse_cron(expr: str) -> CronTrigger:
+    expr = expr.replace("?", "*")
+    fields = expr.split()
+    if len(fields) == 6:
+        s, mi, h, d, mo, dow = fields
+        return CronTrigger(second=s, minute=mi, hour=h, day=d, month=mo, day_of_week=dow)
+    return CronTrigger.from_crontab(expr)
+
+
 def _register_apscheduler_job(task: dict) -> None:
     trigger_str = task["trigger"]
     if trigger_str.startswith("cron:"):
-        trigger = CronTrigger.from_crontab(trigger_str[5:])
+        trigger = _parse_cron(trigger_str[5:])
     else:
         trigger = DateTrigger(run_date=datetime.fromisoformat(trigger_str))
     _scheduler.add_job(
@@ -91,6 +100,8 @@ def create_task(
     if source is None:
         from src.core import message_handler
         source = message_handler.get_current_source()
+    if source is None:
+        return {"error": "source is required: no current chat context"}
     tasks = _load_tasks()
     unique = _unique_name(name, tasks)
     task = {
@@ -241,7 +252,7 @@ async def _recover_missed(tasks: list[dict]) -> list[dict]:
     for task in tasks:
         trigger_str = task["trigger"]
         if trigger_str.startswith("cron:"):
-            trig = CronTrigger.from_crontab(trigger_str[5:])
+            trig = _parse_cron(trigger_str[5:])
             ref = datetime.fromisoformat(task["last_run"]) if task["last_run"] else None
             min_time = ref if ref else datetime(2000, 1, 1)
             next_time = trig.get_next_fire_time(ref, min_time)

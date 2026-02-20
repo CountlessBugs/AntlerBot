@@ -29,6 +29,23 @@ def test_unique_name_no_conflict_with_others():
     assert st._unique_name("提醒", tasks) == "提醒"
 
 
+# --- _parse_cron ---
+
+def test_parse_cron_5_fields():
+    trig = st._parse_cron("0 9 * * *")
+    assert trig is not None
+
+
+def test_parse_cron_6_fields():
+    trig = st._parse_cron("0 0 9 * * *")
+    assert trig is not None
+
+
+def test_parse_cron_question_mark_replaced():
+    trig = st._parse_cron("0 0 9 * * ?")
+    assert trig is not None
+
+
 # --- create_task / cancel_task ---
 
 def _make_task(**kwargs):
@@ -55,6 +72,41 @@ def mock_io(tmp_path):
     with patch("src.core.scheduled_tasks.TASKS_PATH", tasks_path), \
          patch("src.core.scheduled_tasks._register_apscheduler_job"):
         yield tasks_path
+
+
+def test_create_task_repeat_type(mock_io):
+    result = st.create_task.invoke({
+        "type": "repeat", "name": "每日", "content": "c",
+        "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
+    })
+    assert result["name"] == "每日"
+    assert st._load_tasks()[0]["type"] == "repeat"
+
+
+def test_create_task_complex_repeat_type(mock_io):
+    result = st.create_task.invoke({
+        "type": "complex_repeat", "name": "农历生日", "content": "c",
+        "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
+        "original_prompt": "每年农历生日提醒",
+    })
+    assert result["name"] == "农历生日"
+    task = st._load_tasks()[0]
+    assert task["type"] == "complex_repeat"
+    assert task["original_prompt"] == "每年农历生日提醒"
+
+
+def test_create_task_default_source(mock_io):
+    import src.core.message_handler as mh
+    mh._current_source = "group_99"
+    try:
+        result = st.create_task.invoke({
+            "type": "once", "name": "默认源", "content": "c",
+            "trigger": "2026-03-01T10:00:00",
+        })
+    finally:
+        mh._current_source = None
+    assert result["name"] == "默认源"
+    assert st._load_tasks()[0]["source"] == {"type": "group", "id": "99"}
 
 
 def test_create_task_saves_and_returns(mock_io):
@@ -110,7 +162,94 @@ def test_cancel_task_by_id_preferred(mock_io):
     assert result["cancelled"] == "任务"
 
 
-# --- _recover_missed ---
+# --- _on_trigger ---
+
+@pytest.mark.anyio
+async def test_on_trigger_once_removes_task(mock_io):
+    st.create_task.invoke({
+        "type": "once", "name": "提醒", "content": "内容",
+        "trigger": "2026-03-01T10:00:00", "source": {"type": "group", "id": "1"},
+    })
+    task_id = st._load_tasks()[0]["task_id"]
+    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
+         patch("src.core.scheduled_tasks._send_reply", new=AsyncMock()), \
+         patch.object(st._scheduler, "remove_job"):
+        mock_agent.invoke = AsyncMock(return_value="reply")
+        await st._on_trigger(task_id)
+    assert st._load_tasks() == []
+
+
+@pytest.mark.anyio
+async def test_on_trigger_repeat_kept_and_uses_run_count(mock_io):
+    st.create_task.invoke({
+        "type": "repeat", "name": "每日", "content": "内容",
+        "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
+    })
+    task_id = st._load_tasks()[0]["task_id"]
+    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
+         patch("src.core.scheduled_tasks._send_reply", new=AsyncMock()):
+        mock_agent.invoke = AsyncMock(return_value="reply")
+        await st._on_trigger(task_id)
+    tasks = st._load_tasks()
+    assert len(tasks) == 1
+    assert tasks[0]["run_count"] == 1
+    call_arg = mock_agent.invoke.call_args[0][0]
+    assert "第1次" in call_arg
+
+
+@pytest.mark.anyio
+async def test_on_trigger_max_runs_removes_task(mock_io):
+    st.create_task.invoke({
+        "type": "repeat", "name": "限次", "content": "内容",
+        "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
+        "max_runs": 1,
+    })
+    task_id = st._load_tasks()[0]["task_id"]
+    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
+         patch("src.core.scheduled_tasks._send_reply", new=AsyncMock()), \
+         patch.object(st._scheduler, "remove_job"):
+        mock_agent.invoke = AsyncMock(return_value="reply")
+        await st._on_trigger(task_id)
+    assert st._load_tasks() == []
+
+
+# --- _reschedule ---
+
+@pytest.mark.anyio
+async def test_reschedule_cancel_removes_task(mock_io):
+    st.create_task.invoke({
+        "type": "complex_repeat", "name": "农历", "content": "内容",
+        "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
+        "original_prompt": "农历提醒",
+    })
+    task = st._load_tasks()[0]
+    output = st._RescheduleOutput(action="cancel")
+    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
+         patch.object(st._scheduler, "remove_job"):
+        mock_agent.invoke_bare = AsyncMock(return_value=output)
+        await st._reschedule(task)
+    assert st._load_tasks() == []
+
+
+@pytest.mark.anyio
+async def test_reschedule_reschedule_updates_trigger(mock_io):
+    st.create_task.invoke({
+        "type": "complex_repeat", "name": "农历", "content": "内容",
+        "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
+        "original_prompt": "农历提醒",
+    })
+    task = st._load_tasks()[0]
+    new_trigger = "2026-04-01T09:00:00"
+    output = st._RescheduleOutput(action="reschedule", trigger=new_trigger)
+    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
+         patch("src.core.scheduled_tasks._register_apscheduler_job") as mock_reg:
+        mock_agent.invoke_bare = AsyncMock(return_value=output)
+        await st._reschedule(task)
+    saved = st._load_tasks()[0]
+    assert saved["trigger"] == new_trigger
+    mock_reg.assert_called_once()
+
+
 
 @pytest.mark.anyio
 async def test_recover_missed_once_removes_task(tmp_path):

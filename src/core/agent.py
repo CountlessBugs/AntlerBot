@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -87,6 +87,8 @@ def _ensure_initialized():
         msgs = state["messages"]
         if system_prompt:
             msgs = [SystemMessage(system_prompt)] + msgs
+        if not isinstance(msgs[-1], ToolMessage):
+            msgs = msgs + [SystemMessage(f"当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")]
         response = llm_with_tools.invoke(msgs)
         return {"messages": [response]}
 
@@ -114,8 +116,7 @@ async def invoke(human_message: str) -> str:
         _history = _history + [HumanMessage(human_message)]
         result = await _graph.ainvoke({"messages": _history})
         _history = result["messages"]
-        _history = _history + [SystemMessage(f"当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")]
-        return _history[-2].content
+        return _history[-1].content
 
 
 async def invoke_bare(messages: list[BaseMessage], schema=None):
