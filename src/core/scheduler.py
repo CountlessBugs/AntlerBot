@@ -34,6 +34,14 @@ def _batch(items: list) -> list[tuple[str, list[str], list]]:
     return [(k, groups[k][0], groups[k][1]) for k in order]
 
 
+async def invoke(human_message: str) -> str:
+    return await agent._invoke(human_message)
+
+
+async def invoke_bare(messages, schema=None):
+    return await agent._invoke_bare(messages, schema)
+
+
 async def enqueue(priority: int, source_key: str, msg: str, reply_fn) -> None:
     global _processing, _counter
     async with _lock:
@@ -61,7 +69,7 @@ async def _process_loop():
             batches = _batch(items)
             for source_key, msgs, reply_fns in batches:
                 _current_source = source_key
-                response = await agent.invoke("\n".join(msgs))
+                response = await agent._invoke("\n".join(msgs))
                 await reply_fns[-1](response)
     except Exception:
         logger.exception("Error in process loop")

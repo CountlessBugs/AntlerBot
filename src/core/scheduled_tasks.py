@@ -224,7 +224,7 @@ async def _reschedule(task: dict) -> None:
         f"当前内容：{task['content']}\n"
         f"当前触发器：{task['trigger']}"
     )
-    result = await agent.invoke_bare(
+    result = await scheduler.invoke_bare(
         [SystemMessage(timer_prompt), HumanMessage(context)],
         schema=_RescheduleOutput,
     )
@@ -273,7 +273,7 @@ async def _recover_missed(tasks: list[dict]) -> list[dict]:
             f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
             for t in missed
         )
-        await agent.invoke(f"以下定时任务在离线期间已到期：\n{lines}")
+        await scheduler.invoke(f"以下定时任务在离线期间已到期：\n{lines}")
 
     once_missed = {t["task_id"] for t in missed if t["type"] == "once"}
     return [t for t in tasks if t["task_id"] not in once_missed]

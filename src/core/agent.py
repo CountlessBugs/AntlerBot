@@ -109,7 +109,7 @@ def _ensure_initialized():
     _graph = builder.compile()
 
 
-async def invoke(human_message: str) -> str:
+async def _invoke(human_message: str) -> str:
     global _history
     async with _lock:
         _ensure_initialized()
@@ -119,7 +119,7 @@ async def invoke(human_message: str) -> str:
         return _history[-1].content
 
 
-async def invoke_bare(messages: list[BaseMessage], schema=None):
+async def _invoke_bare(messages: list[BaseMessage], schema=None):
     async with _lock:
         _ensure_initialized()
         llm = _llm.with_structured_output(schema) if schema else _llm
