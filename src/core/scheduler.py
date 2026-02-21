@@ -1,5 +1,8 @@
 import asyncio
+import contextlib
 import logging
+from datetime import datetime, timedelta
+from apscheduler.triggers.date import DateTrigger
 from src.core import agent
 
 logger = logging.getLogger(__name__)
@@ -13,6 +16,7 @@ _processing = False
 _current_source: str | None = None
 _lock = asyncio.Lock()
 _counter = 0
+_apscheduler = None
 
 
 def get_current_source() -> dict | None:
@@ -34,12 +38,13 @@ def _batch(items: list) -> list[tuple[str, list[str], list]]:
     return [(k, groups[k][0], groups[k][1]) for k in order]
 
 
-async def invoke(human_message: str) -> str:
-    return await agent._invoke(human_message)
+def init_timeout(apscheduler) -> None:
+    global _apscheduler
+    _apscheduler = apscheduler
 
 
-async def invoke_bare(messages, schema=None):
-    return await agent._invoke_bare(messages, schema)
+async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
+    return await agent._invoke(reason, message, **kwargs)
 
 
 async def enqueue(priority: int, source_key: str, msg: str, reply_fn) -> None:
@@ -50,6 +55,16 @@ async def enqueue(priority: int, source_key: str, msg: str, reply_fn) -> None:
         should_start = not _processing
         if should_start:
             _processing = True
+    if _apscheduler is not None:
+        settings = agent.load_settings()
+        _apscheduler.add_job(
+            _on_session_summarize,
+            DateTrigger(run_date=datetime.now() + timedelta(seconds=settings["timeout_summarize_seconds"])),
+            id="session_summarize",
+            replace_existing=True,
+        )
+        with contextlib.suppress(Exception):
+            _apscheduler.remove_job("session_clear")
     if should_start:
         asyncio.create_task(_process_loop())
 
@@ -69,10 +84,27 @@ async def _process_loop():
             batches = _batch(items)
             for source_key, msgs, reply_fns in batches:
                 _current_source = source_key
-                response = await agent._invoke("\n".join(msgs))
+                response = await agent._invoke("user_message", "\n".join(msgs))
                 await reply_fns[-1](response)
     except Exception:
         logger.exception("Error in process loop")
         async with _lock:
             _processing = False
         _current_source = None
+
+
+async def _on_session_summarize() -> None:
+    await agent._invoke("session_timeout")
+    if _apscheduler is None:
+        return
+    settings = agent.load_settings()
+    _apscheduler.add_job(
+        _on_session_clear,
+        DateTrigger(run_date=datetime.now() + timedelta(seconds=settings["timeout_clear_seconds"])),
+        id="session_clear",
+        replace_existing=True,
+    )
+
+
+async def _on_session_clear() -> None:
+    agent.clear_history()

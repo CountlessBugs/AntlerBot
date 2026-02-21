@@ -1,6 +1,6 @@
 import pytest
 import src.core.scheduler as scheduler
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +71,7 @@ async def test_process_loop_calls_invoke_and_reply():
     async def reply_fn(text): replies.append(text)
     await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn))
     scheduler._processing = True
-    with patch.object(scheduler.agent, "invoke", AsyncMock(return_value="response")):
+    with patch.object(scheduler.agent, "_invoke", AsyncMock(return_value="response")):
         await scheduler._process_loop()
     assert replies == ["response"]
     assert scheduler._processing is False
@@ -82,6 +82,29 @@ async def test_process_loop_exception_resets_processing():
     async def reply_fn(text): pass
     await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn))
     scheduler._processing = True
-    with patch.object(scheduler.agent, "invoke", AsyncMock(side_effect=RuntimeError("fail"))):
+    with patch.object(scheduler.agent, "_invoke", AsyncMock(side_effect=RuntimeError("fail"))):
         await scheduler._process_loop()
     assert scheduler._processing is False
+
+
+@pytest.mark.anyio
+async def test_enqueue_schedules_summarize_job():
+    mock_apscheduler = MagicMock()
+    scheduler._apscheduler = mock_apscheduler
+    async def reply_fn(text): pass
+    with patch.object(scheduler.agent, "load_settings", return_value={"timeout_summarize_seconds": 1800, "timeout_clear_seconds": 3600}):
+        await scheduler.enqueue(1, "src_a", "hello", reply_fn)
+    mock_apscheduler.add_job.assert_called_once()
+    assert mock_apscheduler.add_job.call_args[1]["id"] == "session_summarize"
+    scheduler._apscheduler = None
+
+
+@pytest.mark.anyio
+async def test_enqueue_cancels_clear_job():
+    mock_apscheduler = MagicMock()
+    scheduler._apscheduler = mock_apscheduler
+    async def reply_fn(text): pass
+    with patch.object(scheduler.agent, "load_settings", return_value={"timeout_summarize_seconds": 1800, "timeout_clear_seconds": 3600}):
+        await scheduler.enqueue(1, "src_a", "hello", reply_fn)
+    mock_apscheduler.remove_job.assert_called_once_with("session_clear")
+    scheduler._apscheduler = None

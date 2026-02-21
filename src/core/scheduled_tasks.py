@@ -224,10 +224,13 @@ async def _reschedule(task: dict) -> None:
         f"当前内容：{task['content']}\n"
         f"当前触发器：{task['trigger']}"
     )
-    result = await scheduler.invoke_bare(
-        [SystemMessage(timer_prompt), HumanMessage(context)],
+    result_str = await scheduler.invoke(
+        "",
+        reason="complex_reschedule",
+        messages=[SystemMessage(timer_prompt), HumanMessage(context)],
         schema=_RescheduleOutput,
     )
+    result = _RescheduleOutput.model_validate_json(result_str)
 
     tasks = _load_tasks()
     if result.action == "cancel":
@@ -294,3 +297,4 @@ async def register(bot) -> None:
         _register_apscheduler_job(task)
 
     _scheduler.start()
+    scheduler.init_timeout(_scheduler)

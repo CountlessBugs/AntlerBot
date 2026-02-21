@@ -5,3 +5,4 @@ langchain-openai
 langgraph
 apscheduler
 lunardate
+pyyaml

@@ -224,9 +224,9 @@ async def test_reschedule_cancel_removes_task(mock_io):
     })
     task = st._load_tasks()[0]
     output = st._RescheduleOutput(action="cancel")
-    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
          patch.object(st._scheduler, "remove_job"):
-        mock_agent.invoke_bare = AsyncMock(return_value=output)
+        mock_sched.invoke = AsyncMock(return_value=output.model_dump_json())
         await st._reschedule(task)
     assert st._load_tasks() == []
 
@@ -241,9 +241,9 @@ async def test_reschedule_reschedule_updates_trigger(mock_io):
     task = st._load_tasks()[0]
     new_trigger = "2026-04-01T09:00:00"
     output = st._RescheduleOutput(action="reschedule", trigger=new_trigger)
-    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
          patch("src.core.scheduled_tasks._register_apscheduler_job") as mock_reg:
-        mock_agent.invoke_bare = AsyncMock(return_value=output)
+        mock_sched.invoke = AsyncMock(return_value=output.model_dump_json())
         await st._reschedule(task)
     saved = st._load_tasks()[0]
     assert saved["trigger"] == new_trigger
@@ -255,42 +255,42 @@ async def test_reschedule_reschedule_updates_trigger(mock_io):
 async def test_recover_missed_once_removes_task(tmp_path):
     past = (datetime.now() - timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=past)]
-    with patch("src.core.scheduled_tasks.agent") as mock_agent:
-        mock_agent.invoke = AsyncMock(return_value="ok")
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+        mock_sched.invoke = AsyncMock(return_value="ok")
         result = await st._recover_missed(tasks)
     assert result == []
-    mock_agent.invoke.assert_called_once()
+    mock_sched.invoke.assert_called_once()
 
 
 @pytest.mark.anyio
 async def test_recover_missed_once_already_run_not_missed(tmp_path):
     past = (datetime.now() - timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=past, last_run=past)]
-    with patch("src.core.scheduled_tasks.agent") as mock_agent:
-        mock_agent.invoke = AsyncMock(return_value="ok")
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+        mock_sched.invoke = AsyncMock(return_value="ok")
         result = await st._recover_missed(tasks)
     assert len(result) == 1
-    mock_agent.invoke.assert_not_called()
+    mock_sched.invoke.assert_not_called()
 
 
 @pytest.mark.anyio
 async def test_recover_missed_future_not_missed():
     future = (datetime.now() + timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=future)]
-    with patch("src.core.scheduled_tasks.agent") as mock_agent:
-        mock_agent.invoke = AsyncMock(return_value="ok")
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+        mock_sched.invoke = AsyncMock(return_value="ok")
         result = await st._recover_missed(tasks)
     assert len(result) == 1
-    mock_agent.invoke.assert_not_called()
+    mock_sched.invoke.assert_not_called()
 
 
 @pytest.mark.anyio
 async def test_recover_missed_repeat_kept_after_recovery():
     past_last_run = (datetime.now() - timedelta(days=2)).isoformat()
     tasks = [_make_task(type="repeat", trigger="cron:0 9 * * *", last_run=past_last_run)]
-    with patch("src.core.scheduled_tasks.agent") as mock_agent:
-        mock_agent.invoke = AsyncMock(return_value="ok")
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+        mock_sched.invoke = AsyncMock(return_value="ok")
         result = await st._recover_missed(tasks)
     # repeat tasks are kept even if missed
     assert len(result) == 1
-    mock_agent.invoke.assert_called_once()
+    mock_sched.invoke.assert_called_once()
