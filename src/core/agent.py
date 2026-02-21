@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, AsyncGenerator, Literal, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +198,7 @@ async def _invoke(
     *,
     messages: list[BaseMessage] | None = None,
     schema: type | None = None,
-) -> str:
+) -> AsyncGenerator[str, None]:
     global _pending_schema
     async with _lock:
         _ensure_initialized()
@@ -208,8 +209,60 @@ async def _invoke(
             initial = list(messages)
         else:
             initial = _history + [HumanMessage(message)]
-        result = await _graph.ainvoke({"messages": initial, "reason": reason})
-        return result["messages"][-1].content
+
+        def _emit(text: str):
+            cleaned = re.sub(r'<[^>]+>', '', text).strip()
+            return cleaned if cleaned else None
+
+        buffer = ""
+        in_no_split = False
+
+        async for event in _graph.astream_events({"messages": initial, "reason": reason}, version="v2"):
+            if event["event"] != "on_chat_model_stream":
+                continue
+            if event.get("metadata", {}).get("langgraph_node") != "llm":
+                continue
+            chunk = event["data"]["chunk"].content
+            if not chunk:
+                continue
+            buffer += chunk
+            while True:
+                if not in_no_split:
+                    nl = buffer.find("\n")
+                    ns = buffer.find("<no-split>")
+                    if nl == -1 and ns == -1:
+                        break
+                    if ns == -1 or (nl != -1 and nl < ns):
+                        seg = _emit(buffer[:nl])
+                        if seg:
+                            yield seg
+                        buffer = buffer[nl + 1:]
+                    else:
+                        for line in buffer[:ns].split("\n"):
+                            seg = _emit(line)
+                            if seg:
+                                yield seg
+                        buffer = buffer[ns + len("<no-split>"):]
+                        in_no_split = True
+                else:
+                    end = buffer.find("</no-split>")
+                    if end == -1:
+                        break
+                    seg = _emit(buffer[:end])
+                    if seg:
+                        yield seg
+                    buffer = buffer[end + len("</no-split>"):]
+                    in_no_split = False
+
+        if in_no_split:
+            seg = _emit(buffer)
+            if seg:
+                yield seg
+        else:
+            for line in buffer.split("\n"):
+                seg = _emit(line)
+                if seg:
+                    yield seg
 
 
 def clear_history() -> None:

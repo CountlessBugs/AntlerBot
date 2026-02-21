@@ -44,7 +44,7 @@ def init_timeout(apscheduler) -> None:
 
 
 async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
-    return await agent._invoke(reason, message, **kwargs)
+    return "".join([s async for s in agent._invoke(reason, message, **kwargs)])
 
 
 async def enqueue(priority: int, source_key: str, msg: str, reply_fn) -> None:
@@ -84,8 +84,8 @@ async def _process_loop():
             batches = _batch(items)
             for source_key, msgs, reply_fns in batches:
                 _current_source = source_key
-                response = await agent._invoke("user_message", "\n".join(msgs))
-                await reply_fns[-1](response)
+                async for seg in agent._invoke("user_message", "\n".join(msgs)):
+                    await reply_fns[-1](seg)
     except Exception:
         logger.exception("Error in process loop")
         async with _lock:
@@ -94,7 +94,8 @@ async def _process_loop():
 
 
 async def _on_session_summarize() -> None:
-    await agent._invoke("session_timeout")
+    async for _ in agent._invoke("session_timeout"):
+        pass
     if _apscheduler is None:
         return
     settings = agent.load_settings()

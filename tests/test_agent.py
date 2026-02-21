@@ -2,7 +2,7 @@ import asyncio
 import logging
 import pytest
 import src.core.agent as agent_mod
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
@@ -65,27 +65,37 @@ def test_ensure_initialized_missing_env_var(monkeypatch):
             agent_mod._ensure_initialized()
 
 
+def _make_stream_event(content, node="llm"):
+    return {"event": "on_chat_model_stream", "metadata": {"langgraph_node": node},
+            "data": {"chunk": AIMessage(content)}}
+
+
+async def _aiter(events):
+    for e in events:
+        yield e
+
+
 @pytest.mark.anyio
 async def test_invoke_returns_ai_content():
-    mock_graph = AsyncMock()
-    mock_graph.ainvoke.return_value = {"messages": [AIMessage("pong")]}
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("pong")])
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph):
-        result = await agent_mod._invoke("user_message", "ping")
+        result = "".join([s async for s in agent_mod._invoke("user_message", "ping")])
     assert result == "pong"
 
 
 @pytest.mark.anyio
 async def test_invoke_accumulates_history():
-    def fake_ainvoke(s):
-        msgs = s["messages"] + [AIMessage("reply")]
-        agent_mod._history = msgs
-        return {"messages": msgs}
-    mock_graph = AsyncMock()
-    mock_graph.ainvoke.side_effect = fake_ainvoke
+    def fake_astream_events(s, version):
+        agent_mod._history = s["messages"] + [AIMessage("reply")]
+        return _aiter([_make_stream_event("reply")])
+    mock_graph = MagicMock()
+    mock_graph.astream_events.side_effect = fake_astream_events
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph):
-        await agent_mod._invoke("user_message", "hello")
+        async for _ in agent_mod._invoke("user_message", "hello"):
+            pass
     assert len(agent_mod._history) == 2
     assert isinstance(agent_mod._history[0], HumanMessage)
     assert isinstance(agent_mod._history[1], AIMessage)
@@ -93,17 +103,18 @@ async def test_invoke_accumulates_history():
 
 @pytest.mark.anyio
 async def test_invoke_passes_history_on_second_call():
-    def fake_ainvoke(s):
-        msgs = s["messages"] + [AIMessage("reply")]
-        agent_mod._history = msgs
-        return {"messages": msgs}
-    mock_graph = AsyncMock()
-    mock_graph.ainvoke.side_effect = fake_ainvoke
+    def fake_astream_events(s, version):
+        agent_mod._history = s["messages"] + [AIMessage("reply")]
+        return _aiter([_make_stream_event("reply")])
+    mock_graph = MagicMock()
+    mock_graph.astream_events.side_effect = fake_astream_events
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph):
-        await agent_mod._invoke("user_message", "msg1")
-        await agent_mod._invoke("user_message", "msg2")
-    second_call_msgs = mock_graph.ainvoke.call_args_list[1][0][0]["messages"]
+        async for _ in agent_mod._invoke("user_message", "msg1"):
+            pass
+        async for _ in agent_mod._invoke("user_message", "msg2"):
+            pass
+    second_call_msgs = mock_graph.astream_events.call_args_list[1][0][0]["messages"]
     assert len(second_call_msgs) == 3  # human, ai, human
 
 
@@ -111,17 +122,22 @@ async def test_invoke_passes_history_on_second_call():
 async def test_invoke_executes_sequentially():
     order = []
 
-    async def slow_ainvoke(state):
-        order.append("start")
-        await asyncio.sleep(0)
-        order.append("end")
-        return {"messages": [AIMessage("reply")]}
+    def slow_astream_events(state, version):
+        async def _gen():
+            order.append("start")
+            await asyncio.sleep(0)
+            order.append("end")
+            yield _make_stream_event("reply")
+        return _gen()
 
-    mock_graph = AsyncMock()
-    mock_graph.ainvoke.side_effect = slow_ainvoke
+    mock_graph = MagicMock()
+    mock_graph.astream_events.side_effect = slow_astream_events
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph):
-        await asyncio.gather(agent_mod._invoke("user_message", "a"), agent_mod._invoke("user_message", "b"))
+        async def consume(msg):
+            async for _ in agent_mod._invoke("user_message", msg):
+                pass
+        await asyncio.gather(consume("a"), consume("b"))
     assert order == ["start", "end", "start", "end"]
 
 
@@ -149,11 +165,12 @@ def test_clear_history():
 @pytest.mark.anyio
 async def test_invoke_complex_reschedule_does_not_touch_history():
     agent_mod._history = [HumanMessage("existing")]
-    mock_graph = AsyncMock()
-    mock_graph.ainvoke.return_value = {"messages": [AIMessage("{}")]}
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("{}")])
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph):
-        await agent_mod._invoke("complex_reschedule", messages=[SystemMessage("sys"), HumanMessage("ctx")])
+        async for _ in agent_mod._invoke("complex_reschedule", messages=[SystemMessage("sys"), HumanMessage("ctx")]):
+            pass
     assert len(agent_mod._history) == 1
     assert isinstance(agent_mod._history[0], HumanMessage)
 

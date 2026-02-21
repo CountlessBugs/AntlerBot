@@ -71,7 +71,9 @@ async def test_process_loop_calls_invoke_and_reply():
     async def reply_fn(text): replies.append(text)
     await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn))
     scheduler._processing = True
-    with patch.object(scheduler.agent, "_invoke", AsyncMock(return_value="response")):
+    async def fake_invoke(*a, **kw):
+        yield "response"
+    with patch.object(scheduler.agent, "_invoke", fake_invoke):
         await scheduler._process_loop()
     assert replies == ["response"]
     assert scheduler._processing is False
@@ -82,7 +84,10 @@ async def test_process_loop_exception_resets_processing():
     async def reply_fn(text): pass
     await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn))
     scheduler._processing = True
-    with patch.object(scheduler.agent, "_invoke", AsyncMock(side_effect=RuntimeError("fail"))):
+    async def fail_invoke(*a, **kw):
+        raise RuntimeError("fail")
+        yield  # make it an async generator
+    with patch.object(scheduler.agent, "_invoke", fail_invoke):
         await scheduler._process_loop()
     assert scheduler._processing is False
 
