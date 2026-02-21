@@ -55,16 +55,6 @@ async def enqueue(priority: int, source_key: str, msg: str, reply_fn) -> None:
         should_start = not _processing
         if should_start:
             _processing = True
-    if _apscheduler is not None:
-        settings = agent.load_settings()
-        _apscheduler.add_job(
-            _on_session_summarize,
-            DateTrigger(run_date=datetime.now() + timedelta(seconds=settings["timeout_summarize_seconds"])),
-            id="session_summarize",
-            replace_existing=True,
-        )
-        with contextlib.suppress(Exception):
-            _apscheduler.remove_job("session_clear")
     if should_start:
         asyncio.create_task(_process_loop())
 
@@ -86,6 +76,16 @@ async def _process_loop():
                 _current_source = source_key
                 async for seg in agent._invoke("user_message", "\n".join(msgs)):
                     await reply_fns[-1](seg)
+            if _apscheduler is not None and agent.has_history():
+                settings = agent.load_settings()
+                _apscheduler.add_job(
+                    _on_session_summarize,
+                    DateTrigger(run_date=datetime.now() + timedelta(seconds=settings["timeout_summarize_seconds"])),
+                    id="session_summarize",
+                    replace_existing=True,
+                )
+                with contextlib.suppress(Exception):
+                    _apscheduler.remove_job("session_clear")
     except Exception:
         logger.exception("Error in process loop")
         async with _lock:

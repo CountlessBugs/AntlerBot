@@ -123,11 +123,29 @@ def _ensure_initialized():
         _history = list(state["messages"])
         return {}
 
+    def _safe_for_summary(msgs):
+        """Strip trailing incomplete tool call sequences."""
+        from langchain_core.messages import AIMessage, ToolMessage
+        msgs = list(msgs)
+        while msgs and isinstance(msgs[-1], ToolMessage):
+            msgs.pop()
+        if msgs and isinstance(msgs[-1], AIMessage) and msgs[-1].tool_calls:
+            msgs.pop()
+        return msgs
+
     def summarize_node(state: _State) -> dict:
         global _history
         msgs = state["messages"]
-        last_turn = msgs[-2:] if len(msgs) >= 2 else msgs
-        to_summarize = msgs[:-2] if len(msgs) >= 2 else []
+        last_human = next((i for i in range(len(msgs) - 1, -1, -1) if isinstance(msgs[i], (HumanMessage, SystemMessage))), None)
+        if last_human is not None and last_human > 0:
+            last_turn = msgs[last_human:]
+            to_summarize = _safe_for_summary(msgs[:last_human])
+        else:
+            # no HumanMessage: summarize everything, keep nothing as last_turn
+            to_summarize = _safe_for_summary(msgs)
+            last_turn = []
+        if not to_summarize:
+            return {}
         summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *to_summarize])
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
@@ -137,7 +155,7 @@ def _ensure_initialized():
     def summarize_all_node(state: _State) -> dict:
         global _history
         from langchain_core.messages import RemoveMessage
-        msgs = state["messages"]
+        msgs = _safe_for_summary(state["messages"])
         summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *msgs])
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
@@ -263,6 +281,10 @@ async def _invoke(
                 seg = _emit(line)
                 if seg:
                     yield seg
+
+
+def has_history() -> bool:
+    return bool(_history)
 
 
 def clear_history() -> None:
