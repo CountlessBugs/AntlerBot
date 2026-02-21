@@ -16,7 +16,7 @@ Added auto-summarization and unified `_invoke` to `agent.py`, with APScheduler-d
 ## Deviations from Plan
 
 - `summarize_node` returns `{}` instead of using `RemoveMessage` + re-add. The plan's `RemoveMessage` approach is unreliable: LangGraph's `add_messages` reducer doesn't guarantee stable behavior when removing and re-adding messages with the same ID. Since `summarize_node` goes directly to END, the graph state is discarded anyway — only `_history` matters.
-- Summary format uses `<context_summary summary_time=...>` XML wrapper instead of plain `"对话历史摘要：..."` prefix, for cleaner LLM parsing.
+- Summary format uses `<context-summary summary_time=...>` XML wrapper instead of plain `"对话历史摘要：..."` prefix, for cleaner LLM parsing.
 - `summarize_all_node` still uses `RemoveMessage` (for `session_timeout` path) since it needs to clear the graph state before adding the summary message — this is safe because it's a full replacement, not a partial remove-and-re-add.
 
 ## Key Decisions

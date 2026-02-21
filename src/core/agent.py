@@ -124,7 +124,7 @@ def _ensure_initialized():
         to_summarize = msgs[:-2] if len(msgs) >= 2 else []
         summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *to_summarize])
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        wrapped = f"<context_summary summary_time={t}>\n{summary.content}\n</context_summary>"
+        wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
         _history = [SystemMessage(wrapped)] + list(last_turn)
         return {}
 
@@ -134,7 +134,7 @@ def _ensure_initialized():
         msgs = state["messages"]
         summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *msgs])
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        summary_msg = SystemMessage(f"<context_summary summary_time={t}>\n{summary.content}\n</context_summary>")
+        summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
         _history = [summary_msg]
         return {"messages": [RemoveMessage(id=m.id) for m in msgs] + [summary_msg]}
 
