@@ -30,7 +30,8 @@ def _load_tasks() -> list[dict]:
     if not os.path.exists(TASKS_PATH):
         return []
     with open(TASKS_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        content = f.read().strip()
+        return json.loads(content) if content else []
 
 
 def _save_tasks(tasks: list[dict]) -> None:
