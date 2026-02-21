@@ -10,6 +10,7 @@ logs/
 config/ncatbot.yaml
 config/prompt.txt
 config/agent/prompt.txt
+config/agent/settings.yaml
 config/tasks.json
 
 # Data
