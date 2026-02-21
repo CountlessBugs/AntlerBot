@@ -21,11 +21,12 @@ def reset_agent_state():
 
 def test_load_prompt_missing_creates_default(tmp_path, caplog):
     path = str(tmp_path / "prompt.txt")
-    from src.core.agent import load_prompt
-    with patch("src.core.agent.PROMPT_PATH", path), caplog.at_level(logging.WARNING, logger="src.core.agent"):
+    from src.core.agent import load_prompt, PROMPT_EXAMPLE_PATH
+    expected = open(PROMPT_EXAMPLE_PATH, encoding="utf-8").read()
+    with patch("src.core.agent.PROMPT_PATH", path), caplog.at_level(logging.INFO, logger="src.core.agent"):
         result = load_prompt()
-    assert result == "你是一个QQ机器人"
-    assert (tmp_path / "prompt.txt").read_text(encoding="utf-8") == "你是一个QQ机器人"
+    assert result == expected
+    assert (tmp_path / "prompt.txt").read_text(encoding="utf-8") == expected
     assert caplog.records
 
 
