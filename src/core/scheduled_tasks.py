@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel
 
-from src.core import agent
+from src.core import agent, scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +98,8 @@ def create_task(
     original_prompt: only for complex_repeat, in system voice.
     """
     if source is None:
-        from src.core import message_handler
-        source = message_handler.get_current_source()
+        from src.core import scheduler
+        source = scheduler.get_current_source()
     if source is None:
         return {"error": "source is required: no current chat context"}
     tasks = _load_tasks()
@@ -185,13 +185,17 @@ async def _on_trigger(task_id: str) -> None:
     else:
         header = f"<scheduled_task>{task['name']}</scheduled_task>"
 
-    reply = await agent.invoke(f"{header}\n{task['content']}")
-    await _send_reply(task["source"], reply)
+    source = task["source"]
+    source_key = f"{source['type']}_{source['id']}"
 
-    if task["type"] == "complex_repeat" and not expired:
-        current = _load_tasks()
-        if any(t["task_id"] == task_id for t in current):
-            await _reschedule(task)
+    async def reply_fn(text):
+        await _send_reply(source, text)
+        if task["type"] == "complex_repeat" and not expired:
+            current = _load_tasks()
+            if any(t["task_id"] == task_id for t in current):
+                await _reschedule(task)
+
+    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn)
 
 
 # --- Rescheduling ---

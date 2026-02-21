@@ -96,15 +96,15 @@ def test_create_task_complex_repeat_type(mock_io):
 
 
 def test_create_task_default_source(mock_io):
-    import src.core.message_handler as mh
-    mh._current_source = "group_99"
+    import src.core.scheduler as sched
+    sched._current_source = "group_99"
     try:
         result = st.create_task.invoke({
             "type": "once", "name": "默认源", "content": "c",
             "trigger": "2026-03-01T10:00:00",
         })
     finally:
-        mh._current_source = None
+        sched._current_source = None
     assert result["name"] == "默认源"
     assert st._load_tasks()[0]["source"] == {"type": "group", "id": "99"}
 
@@ -171,10 +171,10 @@ async def test_on_trigger_once_removes_task(mock_io):
         "trigger": "2026-03-01T10:00:00", "source": {"type": "group", "id": "1"},
     })
     task_id = st._load_tasks()[0]["task_id"]
-    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
-         patch("src.core.scheduled_tasks._send_reply", new=AsyncMock()), \
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
          patch.object(st._scheduler, "remove_job"):
-        mock_agent.invoke = AsyncMock(return_value="reply")
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
         await st._on_trigger(task_id)
     assert st._load_tasks() == []
 
@@ -186,15 +186,15 @@ async def test_on_trigger_repeat_kept_and_uses_run_count(mock_io):
         "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
     })
     task_id = st._load_tasks()[0]["task_id"]
-    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
-         patch("src.core.scheduled_tasks._send_reply", new=AsyncMock()):
-        mock_agent.invoke = AsyncMock(return_value="reply")
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
         await st._on_trigger(task_id)
     tasks = st._load_tasks()
     assert len(tasks) == 1
     assert tasks[0]["run_count"] == 1
-    call_arg = mock_agent.invoke.call_args[0][0]
-    assert "第1次" in call_arg
+    call_msg = mock_sched.enqueue.call_args[0][2]
+    assert "第1次" in call_msg
 
 
 @pytest.mark.anyio
@@ -205,10 +205,10 @@ async def test_on_trigger_max_runs_removes_task(mock_io):
         "max_runs": 1,
     })
     task_id = st._load_tasks()[0]["task_id"]
-    with patch("src.core.scheduled_tasks.agent") as mock_agent, \
-         patch("src.core.scheduled_tasks._send_reply", new=AsyncMock()), \
+    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
          patch.object(st._scheduler, "remove_job"):
-        mock_agent.invoke = AsyncMock(return_value="reply")
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
         await st._on_trigger(task_id)
     assert st._load_tasks() == []
 
