@@ -20,7 +20,9 @@ main.py                        # entry point: load_dotenv, register handlers, bo
 src/
   core/
     agent.py                   # LangGraph workflow, LLM init, shared history, load_prompt()
-    message_handler.py         # NcatBot callbacks, format_message, queue, priority batching
+    message_handler.py         # NcatBot callbacks, format_message, enqueues to scheduler
+    scheduler.py               # centralized queue, priority batching, sole caller of agent
+    scheduled_tasks.py         # APScheduler jobs, task CRUD tools, startup recovery
 config/
   agent/
     prompt.txt.example         # copy to prompt.txt to set system prompt
@@ -31,11 +33,13 @@ tests/
 
 # Current State
 
-Core LLM reply feature is implemented:
+Core features implemented:
 - Receives QQ group/private messages via NcatBot callbacks
-- Formats messages with sender info, queues with priority batching (current source first)
+- Formats messages with sender info, enqueues to `scheduler.py` with priority batching (current source first)
 - All sources share one conversation history
 - LLM initialized via `init_chat_model(LLM_MODEL, model_provider=LLM_PROVIDER)`
+- `scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`/`_invoke_bare`
+- `scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
 
 # Configuration
 
@@ -44,10 +48,6 @@ Copy `.env.example` → `.env` and `config/agent/prompt.txt.example` → `config
 Key env vars: `LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`.
 
 Non-OpenAI providers require their langchain package (e.g. `langchain-anthropic`). A friendly error message guides installation if missing.
-
-# Future Architecture Plans
-
-See `docs/plans/scheduler-architecture.md` for the planned refactoring to introduce a `scheduler.py` module that centralizes queue, priority, and batching logic across all task sources (user messages, scheduled tasks, auto-initiated conversations).
 
 # Dependency Management
 
