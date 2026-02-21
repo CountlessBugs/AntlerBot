@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 PROMPT_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "config", "agent", "prompt.txt")
 )
-DEFAULT_PROMPT = "你是一个QQ机器人"
+PROMPT_EXAMPLE_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "config", "agent", "prompt.txt.example")
+)
 
 SETTINGS_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "config", "agent", "settings.yaml")
@@ -44,11 +46,14 @@ _pending_schema: type | None = None
 
 def load_prompt() -> str | None:
     if not os.path.exists(PROMPT_PATH):
-        logger.warning("Prompt file not found at %s, creating with default.", PROMPT_PATH)
         os.makedirs(os.path.dirname(PROMPT_PATH), exist_ok=True)
-        with open(PROMPT_PATH, "w", encoding="utf-8") as f:
-            f.write(DEFAULT_PROMPT)
-        return DEFAULT_PROMPT
+        if not os.path.exists(PROMPT_EXAMPLE_PATH):
+            logger.warning("prompt.txt.example not found; creating empty prompt.txt and skipping system prompt.")
+            open(PROMPT_PATH, "w").close()
+            return None
+        import shutil
+        shutil.copy(PROMPT_EXAMPLE_PATH, PROMPT_PATH)
+        logger.info("Copied prompt.txt.example to prompt.txt.")
     with open(PROMPT_PATH, encoding="utf-8") as f:
         content = f.read()
     if not content:
