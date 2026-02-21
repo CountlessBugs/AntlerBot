@@ -7,3 +7,4 @@
 | 2026-02-20 | [scheduled-tasks](scheduled-tasks/) | APScheduler 定时任务，含 LLM 工具和启动恢复 |
 | 2026-02-21 | [scheduler-architecture](scheduler-architecture/) | 提取 scheduler.py，统一队列/优先级/分发逻辑 |
 | 2026-02-21 | [auto-summarization](auto-summarization/) | 自动摘要与 session 超时清理 |
+| 2026-02-21 | [message-splitting](message-splitting/) | 流式输出按换行拆分为多条 QQ 消息，支持 no-split 标签 |

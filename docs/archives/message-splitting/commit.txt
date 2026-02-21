@@ -1,0 +1,2 @@
+930cc812091f4a146502276a4adac4149d421e4d feat: stream LLM output as split QQ messages
+bd2be0890a298e045023491aca10961cb705ab23 docs: update message splitting instruction in prompt example
