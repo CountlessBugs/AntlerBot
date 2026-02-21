@@ -62,8 +62,7 @@ async def _process_loop():
             for source_key, msgs, reply_fns in batches:
                 _current_source = source_key
                 response = await agent.invoke("\n".join(msgs))
-                for reply_fn in reply_fns:
-                    await reply_fn(response)
+                await reply_fns[-1](response)
     except Exception:
         logger.exception("Error in process loop")
         async with _lock:
