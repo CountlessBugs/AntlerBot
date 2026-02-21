@@ -8,6 +8,11 @@ Core framework docs are in `docs/frameworks/`. Read relevant files before implem
 
 NcatBot is the core framework for interacting with QQ. Docs: `docs/frameworks/NcatBot.md`.
 
+# Plans and Archives
+
+- `docs/plans/` contains detailed design docs for planned features and architecture changes.
+- `docs/archives/` contains design docs and summaries for features that were implemented.
+
 # Project Structure
 
 ```
