@@ -49,6 +49,14 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 
 编辑 `config/agent/prompt.txt` 设置机器人的系统提示词。
 
+`config/agent/settings.yaml` 控制自动摘要行为（可选，缺失时使用内置默认值）：
+
+| 字段 | 说明 |
+|------|------|
+| `context_limit_tokens` | 上下文窗口限制，超过时触发自动摘要 |
+| `timeout_summarize_seconds` | 无消息多少秒后触发会话摘要 |
+| `timeout_clear_seconds` | 摘要后多少秒清空历史 |
+
 使用非 OpenAI 供应商时需安装对应包，例如：
 ```bash
 pip install langchain-anthropic   # Anthropic

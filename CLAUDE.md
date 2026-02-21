@@ -19,13 +19,14 @@ NcatBot is the core framework for interacting with QQ. Docs: `docs/frameworks/Nc
 main.py                        # entry point: load_dotenv, register handlers, bot.run()
 src/
   core/
-    agent.py                   # LangGraph workflow, LLM init, shared history, load_prompt()
+    agent.py                   # LangGraph workflow, LLM init, shared history, load_prompt(), load_settings(), auto-summarization
     message_handler.py         # NcatBot callbacks, format_message, enqueues to scheduler
-    scheduler.py               # centralized queue, priority batching, sole caller of agent
+    scheduler.py               # centralized queue, priority batching, sole caller of agent; session timeout via APScheduler
     scheduled_tasks.py         # APScheduler jobs, task CRUD tools, startup recovery
 config/
   agent/
     prompt.txt.example         # copy to prompt.txt to set system prompt
+    settings.yaml              # auto-summarization settings (context_limit_tokens, session_timeout_minutes, etc.)
 tests/
   test_agent.py
   test_message_handler.py
@@ -38,8 +39,10 @@ Core features implemented:
 - Formats messages with sender info, enqueues to `scheduler.py` with priority batching (current source first)
 - All sources share one conversation history
 - LLM initialized via `init_chat_model(LLM_MODEL, model_provider=LLM_PROVIDER)`
-- `scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`/`_invoke_bare`
+- `scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`; manages session timeout via APScheduler (`init_timeout`, `enqueue` reschedules `session_summarize` job)
 - `scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
+- Auto-summarization: `agent.py` summarizes history when `input_tokens > context_limit_tokens`; session timeout triggers `summarize_all` then `clear_history()`
+- `load_settings()` reads `config/agent/settings.yaml` at routing time (no restart needed for changes)
 
 # Configuration
 
