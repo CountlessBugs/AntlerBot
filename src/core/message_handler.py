@@ -1,5 +1,5 @@
 import logging
-from src.core import scheduler, contact_cache
+from src.core import scheduler, contact_cache, commands
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,9 @@ def register(bot) -> None:
 
     @bot.on_private_message()
     async def on_private(e: PrivateMessageEvent):
+        if e.raw_message.startswith("/"):
+            if await commands.handle_command(str(e.sender.user_id), e.raw_message, bot.api, e):
+                return
         sender_name = await get_sender_name(str(e.sender.user_id), e.sender.nickname)
         msg = format_message(e.raw_message, sender_name)
         await scheduler.enqueue(
