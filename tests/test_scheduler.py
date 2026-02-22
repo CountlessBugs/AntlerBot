@@ -113,3 +113,29 @@ async def test_enqueue_cancels_clear_job():
         await scheduler.enqueue(1, "src_a", "hello", reply_fn)
     mock_apscheduler.remove_job.assert_called_once_with("session_clear")
     scheduler._apscheduler = None
+
+
+@pytest.mark.anyio
+async def test_enqueue_logs_when_already_processing(caplog):
+    import logging
+    scheduler._processing = True
+    async def reply_fn(text): pass
+    with patch("asyncio.create_task"), \
+         caplog.at_level(logging.INFO, logger="src.core.scheduler"):
+        await scheduler.enqueue(1, "src_a", "hello", reply_fn)
+    assert any("queued" in r.message and "src_a" in r.message for r in caplog.records)
+    scheduler._processing = False
+
+
+@pytest.mark.anyio
+async def test_process_loop_logs_processing(caplog):
+    import logging
+    async def reply_fn(text): pass
+    await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn))
+    scheduler._processing = True
+    async def fake_invoke(*a, **kw):
+        yield "response"
+    with patch.object(scheduler.agent, "_invoke", fake_invoke), \
+         caplog.at_level(logging.INFO, logger="src.core.scheduler"):
+        await scheduler._process_loop()
+    assert any("processing" in r.message and "src_a" in r.message for r in caplog.records)

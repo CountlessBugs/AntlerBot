@@ -55,6 +55,8 @@ async def enqueue(priority: int, source_key: str, msg: str, reply_fn) -> None:
         should_start = not _processing
         if should_start:
             _processing = True
+        else:
+            logger.info("queued | source=%s priority=%d depth=%d", source_key, priority, _queue.qsize())
     if should_start:
         asyncio.create_task(_process_loop())
 
@@ -74,6 +76,7 @@ async def _process_loop():
             batches = _batch(items)
             for source_key, msgs, reply_fns in batches:
                 _current_source = source_key
+                logger.info("processing | source=%s batch=%d", source_key, len(msgs))
                 async for seg in agent._invoke("user_message", "\n".join(msgs)):
                     await reply_fns[-1](seg)
             if _apscheduler is not None and agent.has_history():

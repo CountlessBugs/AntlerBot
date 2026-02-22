@@ -184,3 +184,28 @@ def test_route_after_llm_over_limit():
         # route_after_llm is defined inside _ensure_initialized; test via graph routing indirectly
         tokens = (last.usage_metadata or {}).get("input_tokens", 0)
         assert tokens > 8000
+
+
+@pytest.mark.anyio
+async def test_invoke_logs_start_and_done(caplog):
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("hi")])
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph), \
+         caplog.at_level(logging.INFO, logger="src.core.agent"):
+        async for _ in agent_mod._invoke("user_message", "ping"):
+            pass
+    msgs = [r.message for r in caplog.records]
+    assert any("agent invoke" in m and "user_message" in m for m in msgs)
+    assert any("agent done" in m and "user_message" in m for m in msgs)
+
+
+@pytest.mark.anyio
+async def test_with_tool_logging_logs_tool_name(caplog):
+    mock_tool = MagicMock()
+    mock_tool.name = "my_tool"
+    mock_tool.ainvoke = AsyncMock(return_value="result")
+    wrapped = agent_mod._with_tool_logging(mock_tool)
+    with caplog.at_level(logging.INFO, logger="src.core.agent"):
+        await wrapped.ainvoke({"input": "x"})
+    assert any("my_tool" in r.message for r in caplog.records)

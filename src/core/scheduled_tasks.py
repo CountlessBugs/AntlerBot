@@ -76,6 +76,7 @@ def _register_apscheduler_job(task: dict) -> None:
         id=task["task_id"],
         replace_existing=True,
     )
+    logger.info("job registered | name=%s type=%s trigger=%s", task["name"], task["type"], trigger_str)
 
 
 # --- Tools ---

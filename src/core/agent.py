@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from datetime import datetime
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -83,9 +84,18 @@ _PROVIDER_PACKAGES = {
 }
 
 
+def _with_tool_logging(t):
+    orig = t.ainvoke
+    async def logged(input, config=None, **kwargs):
+        logger.info("tool: %s", t.name)
+        return await orig(input, config, **kwargs)
+    object.__setattr__(t, 'ainvoke', logged)
+    return t
+
+
 def register_tools(tools: list) -> None:
     global _tools, _graph
-    _tools = tools
+    _tools = [_with_tool_logging(t) for t in tools]
     _graph = None
 
 
@@ -153,6 +163,7 @@ def _ensure_initialized():
         return {}
 
     def summarize_all_node(state: _State) -> dict:
+        logger.info("session summarize triggered")
         global _history
         from langchain_core.messages import RemoveMessage
         msgs = _safe_for_summary(state["messages"])
@@ -178,6 +189,7 @@ def _ensure_initialized():
             return "tools"
         tokens = (last.usage_metadata or {}).get("input_tokens", 0)
         if tokens > load_settings()["context_limit_tokens"]:
+            logger.info("auto-summarize | tokens=%d", tokens)
             return "summarize"
         return "finalize"
 
@@ -221,6 +233,8 @@ async def _invoke(
     async with _lock:
         _ensure_initialized()
         _pending_schema = schema
+        logger.info("agent invoke | reason=%s schema=%s", reason, schema.__name__ if schema else None)
+        t0 = time.monotonic()
         if reason == "session_timeout":
             initial = list(_history)
         elif reason == "complex_reschedule":
@@ -281,6 +295,7 @@ async def _invoke(
                 seg = _emit(line)
                 if seg:
                     yield seg
+        logger.info("agent done | reason=%s elapsed=%.2fs", reason, time.monotonic() - t0)
 
 
 def has_history() -> bool:

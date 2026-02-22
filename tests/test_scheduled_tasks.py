@@ -46,6 +46,21 @@ def test_parse_cron_question_mark_replaced():
     assert trig is not None
 
 
+def test_register_apscheduler_job_logs(caplog):
+    import logging
+    task = {
+        "task_id": "tid-1",
+        "type": "once",
+        "name": "测试",
+        "trigger": "2026-03-01T10:00:00",
+    }
+    mock_scheduler = MagicMock()
+    with patch.object(st, "_scheduler", mock_scheduler), \
+         caplog.at_level(logging.INFO, logger="src.core.scheduled_tasks"):
+        st._register_apscheduler_job(task)
+    assert any("job registered" in r.message and "测试" in r.message for r in caplog.records)
+
+
 # --- create_task / cancel_task ---
 
 def _make_task(**kwargs):
