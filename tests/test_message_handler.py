@@ -47,3 +47,8 @@ async def test_get_sender_name_group_card_no_remark():
 async def test_get_sender_name_group_no_card_with_remark():
     contact_cache._friends["123"] = {"remark": "Dev"}
     assert await mh.get_sender_name("123", "Alice", "") == "Dev"
+
+
+@pytest.mark.anyio
+async def test_get_sender_name_group_no_card_no_remark_uses_nickname():
+    assert await mh.get_sender_name("123", "Alice", "") == "Alice"
