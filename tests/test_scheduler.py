@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import src.core.scheduler as scheduler
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -97,8 +98,14 @@ async def test_enqueue_schedules_summarize_job():
     mock_apscheduler = MagicMock()
     scheduler._apscheduler = mock_apscheduler
     async def reply_fn(text): pass
-    with patch.object(scheduler.agent, "load_settings", return_value={"timeout_summarize_seconds": 1800, "timeout_clear_seconds": 3600}):
+    async def fake_invoke(*a, **kw):
+        yield "response"
+    with patch.object(scheduler.agent, "load_settings", return_value={"timeout_summarize_seconds": 1800, "timeout_clear_seconds": 3600}), \
+         patch.object(scheduler.agent, "_invoke", fake_invoke), \
+         patch.object(scheduler.agent, "has_history", return_value=True):
         await scheduler.enqueue(1, "src_a", "hello", reply_fn)
+        while scheduler._processing:
+            await asyncio.sleep(0.01)
     mock_apscheduler.add_job.assert_called_once()
     assert mock_apscheduler.add_job.call_args[1]["id"] == "session_summarize"
     scheduler._apscheduler = None
@@ -109,8 +116,14 @@ async def test_enqueue_cancels_clear_job():
     mock_apscheduler = MagicMock()
     scheduler._apscheduler = mock_apscheduler
     async def reply_fn(text): pass
-    with patch.object(scheduler.agent, "load_settings", return_value={"timeout_summarize_seconds": 1800, "timeout_clear_seconds": 3600}):
+    async def fake_invoke(*a, **kw):
+        yield "response"
+    with patch.object(scheduler.agent, "load_settings", return_value={"timeout_summarize_seconds": 1800, "timeout_clear_seconds": 3600}), \
+         patch.object(scheduler.agent, "_invoke", fake_invoke), \
+         patch.object(scheduler.agent, "has_history", return_value=True):
         await scheduler.enqueue(1, "src_a", "hello", reply_fn)
+        while scheduler._processing:
+            await asyncio.sleep(0.01)
     mock_apscheduler.remove_job.assert_called_once_with("session_clear")
     scheduler._apscheduler = None
 
