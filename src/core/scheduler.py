@@ -112,3 +112,5 @@ async def _on_session_summarize() -> None:
 
 async def _on_session_clear() -> None:
     agent.clear_history()
+    from src.core import contact_cache
+    await contact_cache.refresh_all()

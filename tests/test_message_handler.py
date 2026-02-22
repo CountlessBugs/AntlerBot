@@ -1,14 +1,16 @@
 import pytest
 import src.core.message_handler as mh
-from unittest.mock import AsyncMock, MagicMock, patch
+import src.core.contact_cache as contact_cache
 from src.core.message_handler import format_message
 
 
 @pytest.fixture(autouse=True)
-def reset_mh_state():
-    mh._group_name_cache = {}
+def reset_cache():
+    contact_cache._friends = {}
+    contact_cache._groups = {}
     yield
-    mh._group_name_cache = {}
+    contact_cache._friends = {}
+    contact_cache._groups = {}
 
 
 def test_format_message_group():
@@ -20,23 +22,28 @@ def test_format_message_private():
 
 
 @pytest.mark.anyio
-async def test_get_group_name_calls_api_on_miss():
-    mock_info = MagicMock(group_name="TestGroup")
-    mock_api = AsyncMock()
-    mock_api.get_group_info.return_value = mock_info
-    mock_module = MagicMock(status=MagicMock(global_api=mock_api))
-    with patch.dict("sys.modules", {"ncatbot.utils": mock_module}):
-        result = await mh.get_group_name("123")
-    assert result == "TestGroup"
-    mock_api.get_group_info.assert_called_once_with("123")
+async def test_get_sender_name_private_uses_remark():
+    contact_cache._friends["123"] = {"remark": "Dev"}
+    assert await mh.get_sender_name("123", "Alice") == "Dev"
 
 
 @pytest.mark.anyio
-async def test_get_group_name_uses_cache():
-    mh._group_name_cache["123"] = "CachedGroup"
-    mock_api = AsyncMock()
-    mock_module = MagicMock(status=MagicMock(global_api=mock_api))
-    with patch.dict("sys.modules", {"ncatbot.utils": mock_module}):
-        result = await mh.get_group_name("123")
-    assert result == "CachedGroup"
-    mock_api.get_group_info.assert_not_called()
+async def test_get_sender_name_private_falls_back_to_nickname():
+    assert await mh.get_sender_name("123", "Alice") == "Alice"
+
+
+@pytest.mark.anyio
+async def test_get_sender_name_group_card_and_remark():
+    contact_cache._friends["123"] = {"remark": "Dev"}
+    assert await mh.get_sender_name("123", "Alice", "CardName") == "CardName (Dev)"
+
+
+@pytest.mark.anyio
+async def test_get_sender_name_group_card_no_remark():
+    assert await mh.get_sender_name("123", "Alice", "CardName") == "CardName"
+
+
+@pytest.mark.anyio
+async def test_get_sender_name_group_no_card_with_remark():
+    contact_cache._friends["123"] = {"remark": "Dev"}
+    assert await mh.get_sender_name("123", "Alice", "") == "Dev"
