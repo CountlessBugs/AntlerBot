@@ -1,0 +1,2 @@
+39d1e645367f9868eb60784ea47d561cdc0994b3 feat: add contact cache for improved sender name display
+33d9b02614f52e23d284a84696f4c77210b60205 test: add missing test case for nickname fallback
