@@ -20,13 +20,15 @@ main.py                        # entry point: load_dotenv, register handlers, bo
 src/
   core/
     agent.py                   # LangGraph workflow, LLM init, shared history, load_prompt(), load_settings(), auto-summarization
-    message_handler.py         # NcatBot callbacks, format_message, enqueues to scheduler
+    message_handler.py         # NcatBot callbacks, format_message, intercepts private /commands, enqueues to scheduler
     scheduler.py               # centralized queue, priority batching, sole caller of agent; session timeout via APScheduler
     scheduled_tasks.py         # APScheduler jobs, task CRUD tools, startup recovery
+    commands.py                # command registry, permission checks, command handlers
 config/
   agent/
     prompt.txt.example         # copy to prompt.txt to set system prompt
     settings.yaml              # auto-summarization settings (context_limit_tokens, session_timeout_minutes, etc.)
+  permissions.yaml             # 3-tier permissions: developer/admin QQ UID lists (auto-created if missing)
 tests/
   test_agent.py
   test_message_handler.py
@@ -43,6 +45,7 @@ Core features implemented:
 - `scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
 - Auto-summarization: `agent.py` summarizes history when `input_tokens > context_limit_tokens`; session timeout triggers `summarize_all` then `clear_history()`
 - `load_settings()` reads `config/agent/settings.yaml` at routing time (no restart needed for changes)
+- `commands.py` handles private-chat `/commands`: permission checks against `config/permissions.yaml` (re-read each call), 8 developer commands, 3 admin commands; command messages bypass scheduler and LLM context entirely
 
 # Configuration
 
