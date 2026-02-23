@@ -77,7 +77,7 @@ async def handle_command(user_id: str, text: str, bot_api, event) -> bool:
 
 # --- Developer commands ---
 
-@_register("help", ROLE_DEVELOPER, "列出可用指令或查看指令详情", "/help [指令名]")
+@_register("help", ROLE_DEVELOPER, "列出可用指令，添加指令名称可查看指令详情", "/help [指令名]")
 async def _cmd_help(user_id, args, bot_api, event):
     role = get_role(user_id)
     if args:
@@ -95,17 +95,17 @@ async def _cmd_help(user_id, args, bot_api, event):
     await bot_api.post_private_msg(user_id=event.user_id, text="\n".join(lines))
 
 
-@_register("token", ROLE_DEVELOPER, "显示上次对话token消耗")
+@_register("token", ROLE_DEVELOPER, "查看当前上下文 token 数量")
 async def _cmd_token(user_id, args, bot_api, event):
     await bot_api.post_private_msg(user_id=event.user_id, text=f"当前上下文token数量：{agent._current_token_usage}")
 
 
-@_register("raw", ROLE_DEVELOPER, "显示最后一轮对话")
+@_register("raw", ROLE_DEVELOPER, "显示 Agent 上下文中最后一轮对话的原始内容")
 async def _cmd_raw(user_id, args, bot_api, event):
     from langchain_core.messages import HumanMessage, AIMessage
     history = agent._history
     if not history:
-        await bot_api.post_private_msg(user_id=event.user_id, text="该条原始消息不存在于上下文中")
+        await bot_api.post_private_msg(user_id=event.user_id, text="上下文中不存在可查看的消息")
         return
     last_human = last_ai = None
     for m in reversed(history):
@@ -123,7 +123,7 @@ async def _cmd_raw(user_id, args, bot_api, event):
     await bot_api.post_private_msg(user_id=event.user_id, text="\n".join(parts) or "无内容")
 
 
-@_register("status", ROLE_DEVELOPER, "显示Bot状态")
+@_register("status", ROLE_DEVELOPER, "显示 Bot 状态")
 async def _cmd_status(user_id, args, bot_api, event):
     active = agent.has_history()
     msg_count = len(agent._history)
@@ -145,7 +145,7 @@ async def _cmd_status(user_id, args, bot_api, event):
     await bot_api.post_private_msg(user_id=event.user_id, text="\n".join(lines))
 
 
-@_register("tasks", ROLE_DEVELOPER, "列出活跃的定时任务")
+@_register("tasks", ROLE_DEVELOPER, "查看定时任务列表")
 async def _cmd_tasks(user_id, args, bot_api, event):
     tasks = scheduled_tasks._load_tasks()
     if not tasks:
@@ -208,7 +208,7 @@ async def _cmd_reload(user_id, args, bot_api, event):
         await bot_api.post_private_msg(user_id=event.user_id, text="用法: /reload [config|contact]")
 
 
-@_register("summarize", ROLE_ADMIN, "立即总结上下文")
+@_register("summarize", ROLE_ADMIN, "总结当前上下文")
 async def _cmd_summarize(user_id, args, bot_api, event):
     if not agent._history:
         await bot_api.post_private_msg(user_id=event.user_id, text="执行失败，当前上下文为空")
@@ -218,7 +218,7 @@ async def _cmd_summarize(user_id, args, bot_api, event):
     await bot_api.post_private_msg(user_id=event.user_id, text="上下文已总结")
 
 
-@_register("clearcontext", ROLE_ADMIN, "清空上下文历史")
+@_register("clearcontext", ROLE_ADMIN, "清空上下文")
 async def _cmd_clear_context(user_id, args, bot_api, event):
     agent.clear_history()
     await bot_api.post_private_msg(user_id=event.user_id, text="上下文已清空")

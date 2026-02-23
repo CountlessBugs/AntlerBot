@@ -82,22 +82,22 @@ admin:
 
 | 命令 | 说明 |
 |------|------|
-| `/help` | 显示命令列表 |
-| `/token` | 当前上下文 token 用量 |
-| `/context` | 导出对话历史（文件） |
+| `/help` | 列出可用指令或查看指令详情 |
+| `/token` | 查看当前上下文 token 数量 |
+| `/context` | 查看当前上下文 |
 | `/prompt` | 查看当前系统提示词 |
-| `/raw` | 查看原始 settings.yaml |
-| `/log` | 导出最新日志文件 |
-| `/status` | 运行状态概览 |
+| `/raw` | 显示 Agent 上下文中最后一轮对话的原始内容 |
+| `/log` | 导出日志文件 |
+| `/status` | 显示 Bot 状态 |
 | `/tasks` | 查看定时任务列表 |
 
 **管理员命令（含开发者命令）：**
 
 | 命令 | 说明 |
 |------|------|
-| `/reload` | 热重载 prompt 和 settings |
-| `/summarize` | 立即触发摘要 |
-| `/clearcontext` | 摘要后清空历史 |
+| `/reload` | 重载配置和联系人缓存 |
+| `/summarize` | 总结当前上下文 |
+| `/clearcontext` | 清空上下文 |
 
 ## ⏰ 定时任务
 
