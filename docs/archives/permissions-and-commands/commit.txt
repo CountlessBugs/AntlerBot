@@ -1,0 +1,3 @@
+deefe0b8f2a824aa84545639baa25a9f3309958f feat: add permission system and private-chat commands
+5a5e3d2ab11b04cdf4029b13a6acb90437c0f8bd Merge branch 'feature/permissions-and-commands'
+ecdec80656544ce738e9278ebbfc23035d2e3c19 fix: fix command bugs, token tracking, and permission duplicate handling

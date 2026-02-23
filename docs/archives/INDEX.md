@@ -10,3 +10,4 @@
 | 2026-02-21 | [message-splitting](message-splitting/) | 流式输出按换行拆分为多条 QQ 消息，支持 no-split 标签 |
 | 2026-02-22 | [logging-improvements](logging-improvements/) | 为 agent、scheduler、scheduled_tasks 添加结构化 INFO 日志 |
 | 2026-02-22 | [sender-name-display](sender-name-display/) | 联系人缓存，改善发送者名称显示（备注、群名片、群备注） |
+| 2026-02-23 | [permissions-and-commands](permissions-and-commands/) | 3级权限系统与私聊指令系统，含精确 token 追踪 |
