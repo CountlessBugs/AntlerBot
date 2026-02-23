@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -202,7 +203,7 @@ def _ensure_initialized():
         last = state["messages"][-1]
         if last.tool_calls:
             return "tools"
-        tokens = (last.usage_metadata or {}).get("input_tokens", 0)
+        tokens = (last.usage_metadata or {}).get("input_tokens") or count_tokens_approximately(state["messages"])
         if tokens > load_settings()["context_limit_tokens"]:
             logger.info("auto-summarize | tokens=%d", tokens)
             return "summarize"
@@ -314,8 +315,8 @@ async def _invoke(
         global _current_token_usage
         if reason in ("user_message", "scheduled_task"):
             last_ai = next((m for m in reversed(_history) if isinstance(m, AIMessage)), None)
-            if last_ai and last_ai.usage_metadata:
-                _current_token_usage = last_ai.usage_metadata.get("total_tokens", _current_token_usage)
+            if last_ai:
+                _current_token_usage = (last_ai.usage_metadata or {}).get("total_tokens") or count_tokens_approximately(_history)
 
 
 def has_history() -> bool:
