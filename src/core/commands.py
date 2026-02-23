@@ -97,7 +97,7 @@ async def _cmd_help(user_id, args, bot_api, event):
 
 @_register("token", ROLE_DEVELOPER, "显示上次对话token消耗")
 async def _cmd_token(user_id, args, bot_api, event):
-    await bot_api.post_private_msg(user_id=event.user_id, text=f"上次对话token消耗: {agent._current_token_usage}")
+    await bot_api.post_private_msg(user_id=event.user_id, text=f"当前上下文token数量：{agent._current_token_usage}")
 
 
 @_register("raw", ROLE_DEVELOPER, "显示最后一轮对话")
@@ -198,11 +198,11 @@ async def _cmd_reload(user_id, args, bot_api, event):
         agent._graph = None
         await bot_api.post_private_msg(user_id=event.user_id, text="配置已重载")
     elif target == "contact":
-        contact_cache.refresh_all()
+        await contact_cache.refresh_all()
         await bot_api.post_private_msg(user_id=event.user_id, text="联系人缓存已刷新")
     elif target == "":
         agent._graph = None
-        contact_cache.refresh_all()
+        await contact_cache.refresh_all()
         await bot_api.post_private_msg(user_id=event.user_id, text="配置和联系人缓存已重载")
     else:
         await bot_api.post_private_msg(user_id=event.user_id, text="用法: /reload [config|contact]")
