@@ -44,6 +44,7 @@ _history: list[BaseMessage] = []
 _lock = asyncio.Lock()
 _tools: list = []
 _pending_schema: type | None = None
+_current_token_usage: int = 0
 
 
 def load_prompt() -> str | None:
@@ -144,7 +145,7 @@ def _ensure_initialized():
         return msgs
 
     def summarize_node(state: _State) -> dict:
-        global _history
+        global _history, _current_token_usage
         msgs = state["messages"]
         last_human = next((i for i in range(len(msgs) - 1, -1, -1) if isinstance(msgs[i], (HumanMessage, SystemMessage))), None)
         if last_human is not None and last_human > 0:
@@ -157,6 +158,13 @@ def _ensure_initialized():
         if not to_summarize:
             return {}
         summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *to_summarize])
+        if summary.usage_metadata:
+            meta = summary.usage_metadata
+            _current_token_usage = (
+                meta.get("output_tokens", 0)
+                + _current_token_usage
+                - meta.get("input_tokens", 0)
+            )
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
         _history = [SystemMessage(wrapped)] + list(last_turn)
@@ -164,10 +172,17 @@ def _ensure_initialized():
 
     def summarize_all_node(state: _State) -> dict:
         logger.info("session summarize triggered")
-        global _history
+        global _history, _current_token_usage
         from langchain_core.messages import RemoveMessage
         msgs = _safe_for_summary(state["messages"])
         summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *msgs])
+        if summary.usage_metadata:
+            meta = summary.usage_metadata
+            _current_token_usage = (
+                meta.get("output_tokens", 0)
+                + _current_token_usage
+                - meta.get("input_tokens", 0)
+            )
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
         _history = [summary_msg]
@@ -296,6 +311,11 @@ async def _invoke(
                 if seg:
                     yield seg
         logger.info("agent done | reason=%s elapsed=%.2fs", reason, time.monotonic() - t0)
+        global _current_token_usage
+        if reason in ("user_message", "scheduled_task"):
+            last_ai = next((m for m in reversed(_history) if isinstance(m, AIMessage)), None)
+            if last_ai and last_ai.usage_metadata:
+                _current_token_usage = last_ai.usage_metadata.get("total_tokens", _current_token_usage)
 
 
 def has_history() -> bool:

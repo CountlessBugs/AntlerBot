@@ -12,11 +12,13 @@ def reset_agent_state():
     agent_mod._graph = None
     agent_mod._llm = None
     agent_mod._lock = asyncio.Lock()
+    agent_mod._current_token_usage = 0
     yield
     agent_mod._history = []
     agent_mod._graph = None
     agent_mod._llm = None
     agent_mod._lock = asyncio.Lock()
+    agent_mod._current_token_usage = 0
 
 
 def test_load_prompt_missing_creates_default(tmp_path, caplog):
@@ -209,3 +211,69 @@ async def test_with_tool_logging_logs_tool_name(caplog):
     with caplog.at_level(logging.INFO, logger="src.core.agent"):
         await wrapped.ainvoke({"input": "x"})
     assert any("my_tool" in r.message for r in caplog.records)
+
+
+@pytest.mark.anyio
+async def test_invoke_updates_last_token_usage():
+    def fake_astream_events(s, version):
+        ai = AIMessage("reply")
+        ai.usage_metadata = {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150}
+        agent_mod._history = s["messages"] + [ai]
+        return _aiter([_make_stream_event("reply")])
+    mock_graph = MagicMock()
+    mock_graph.astream_events.side_effect = fake_astream_events
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph):
+        async for _ in agent_mod._invoke("user_message", "hello"):
+            pass
+    assert agent_mod._current_token_usage == 150
+
+
+@pytest.mark.anyio
+async def test_complex_reschedule_does_not_update_token_usage():
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("{}")])
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph):
+        async for _ in agent_mod._invoke("complex_reschedule", messages=[SystemMessage("sys"), HumanMessage("ctx")]):
+            pass
+    assert agent_mod._current_token_usage == 0
+
+
+@pytest.mark.anyio
+async def test_session_timeout_records_summary_token_usage():
+    summary_ai = AIMessage("summary text")
+    summary_ai.usage_metadata = {"input_tokens": 80, "output_tokens": 20, "total_tokens": 100}
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = summary_ai
+    mock_llm.bind_tools.return_value = mock_llm
+    agent_mod._history = [HumanMessage("hello"), AIMessage("hi")]
+    agent_mod._current_token_usage = 200
+    with patch("src.core.agent.init_chat_model", return_value=mock_llm), \
+         patch.dict("os.environ", {"LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o"}):
+        agent_mod._ensure_initialized()
+    graph = agent_mod._graph
+    state = {"messages": [HumanMessage("hello"), AIMessage("hi")], "reason": "session_timeout"}
+    await graph.ainvoke(state, config={"configurable": {"thread_id": "test"}})
+    assert agent_mod._current_token_usage == 140  # 20 + (200 - 80)
+
+
+@pytest.mark.anyio
+async def test_auto_summarize_records_token_usage():
+    # prev=200, summary input=180, output=30 → new = 30 + (200 - 180) = 50
+    llm_reply = AIMessage("reply")
+    llm_reply.usage_metadata = {"input_tokens": 99999, "output_tokens": 10, "total_tokens": 100009}
+    summary_ai = AIMessage("summary")
+    summary_ai.usage_metadata = {"input_tokens": 180, "output_tokens": 30, "total_tokens": 210}
+    mock_llm = MagicMock()
+    mock_llm.invoke.side_effect = [llm_reply, summary_ai]
+    mock_llm.bind_tools.return_value = mock_llm
+    agent_mod._history = [HumanMessage("hello")]
+    agent_mod._current_token_usage = 200
+    with patch("src.core.agent.init_chat_model", return_value=mock_llm), \
+         patch.dict("os.environ", {"LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o"}):
+        agent_mod._ensure_initialized()
+    graph = agent_mod._graph
+    state = {"messages": [HumanMessage("hello")], "reason": "user_message"}
+    await graph.ainvoke(state, config={"configurable": {"thread_id": "test3"}})
+    assert agent_mod._current_token_usage == 50

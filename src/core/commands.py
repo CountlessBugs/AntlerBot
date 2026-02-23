@@ -29,7 +29,12 @@ def load_permissions() -> dict[str, int]:
     for role_name, ids in data.items():
         level = _ROLE_MAP.get(role_name, ROLE_USER)
         for uid in ids or []:
-            result[str(uid)] = level
+            uid = str(uid)
+            if uid in result:
+                logger.warning("permissions.yaml: uid %s appears in multiple roles, using lower role", uid)
+                result[uid] = min(result[uid], level)
+            else:
+                result[uid] = level
     return result
 
 
@@ -55,10 +60,12 @@ async def handle_command(user_id: str, text: str, bot_api, event) -> bool:
     if role == ROLE_USER:
         return False
     parts = text[1:].split(None, 1)
+    if not parts:
+        parts = ["help"]
     cmd_name = parts[0]
     args = parts[1] if len(parts) > 1 else ""
     if cmd_name not in _COMMANDS:
-        await bot_api.post_private_msg(user_id=event.user_id, text=f"未知指令: /{cmd_name}")
+        await bot_api.post_private_msg(user_id=event.user_id, text=f"未知指令 /{cmd_name}，请输入 /help 查看可用指令")
         return True
     min_role, handler, _, _ = _COMMANDS[cmd_name]
     if role < min_role:
@@ -88,15 +95,9 @@ async def _cmd_help(user_id, args, bot_api, event):
     await bot_api.post_private_msg(user_id=event.user_id, text="\n".join(lines))
 
 
-@_register("token", ROLE_DEVELOPER, "显示当前上下文token数")
+@_register("token", ROLE_DEVELOPER, "显示上次对话token消耗")
 async def _cmd_token(user_id, args, bot_api, event):
-    count = sum(len(m.content) // 2 for m in agent._history)
-    if agent._llm and hasattr(agent._llm, "get_num_tokens"):
-        try:
-            count = agent._llm.get_num_tokens("".join(m.content for m in agent._history if isinstance(m.content, str)))
-        except Exception:
-            pass
-    await bot_api.post_private_msg(user_id=event.user_id, text=f"当前上下文token估算: {count}")
+    await bot_api.post_private_msg(user_id=event.user_id, text=f"上次对话token消耗: {agent._current_token_usage}")
 
 
 @_register("raw", ROLE_DEVELOPER, "显示最后一轮对话")
@@ -104,7 +105,7 @@ async def _cmd_raw(user_id, args, bot_api, event):
     from langchain_core.messages import HumanMessage, AIMessage
     history = agent._history
     if not history:
-        await bot_api.post_private_msg(user_id=event.user_id, text="该轮对话在上下文历史中已被清除")
+        await bot_api.post_private_msg(user_id=event.user_id, text="该条原始消息不存在于上下文中")
         return
     last_human = last_ai = None
     for m in reversed(history):
@@ -158,8 +159,11 @@ async def _cmd_tasks(user_id, args, bot_api, event):
 
 @_register("context", ROLE_DEVELOPER, "导出当前上下文历史")
 async def _cmd_context(user_id, args, bot_api, event):
-    text = "\n".join(f"[{type(m).__name__}] {m.content}" for m in agent._history)
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+    if not agent._history:
+        await bot_api.post_private_msg(user_id=event.user_id, text="当前上下文无内容")
+        return
+    text = "\n".join(f"[{type(m).__name__.replace('Message', '')}] {m.content}" for m in agent._history)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8-sig") as f:
         f.write(text)
         path = f.name
     await bot_api.upload_private_file(user_id=event.user_id, file=path, name="context.txt")
@@ -187,7 +191,7 @@ async def _cmd_log(user_id, args, bot_api, event):
 
 # --- Admin commands ---
 
-@_register("reload", ROLE_ADMIN, "重载配置", "/reload <config|contact>")
+@_register("reload", ROLE_ADMIN, "重载配置和联系人缓存", "/reload [config|contact]")
 async def _cmd_reload(user_id, args, bot_api, event):
     target = args.strip()
     if target == "config":
@@ -196,18 +200,25 @@ async def _cmd_reload(user_id, args, bot_api, event):
     elif target == "contact":
         contact_cache.refresh_all()
         await bot_api.post_private_msg(user_id=event.user_id, text="联系人缓存已刷新")
+    elif target == "":
+        agent._graph = None
+        contact_cache.refresh_all()
+        await bot_api.post_private_msg(user_id=event.user_id, text="配置和联系人缓存已重载")
     else:
-        await bot_api.post_private_msg(user_id=event.user_id, text="用法: /reload <config|contact>")
+        await bot_api.post_private_msg(user_id=event.user_id, text="用法: /reload [config|contact]")
 
 
 @_register("summarize", ROLE_ADMIN, "立即总结上下文")
 async def _cmd_summarize(user_id, args, bot_api, event):
+    if not agent._history:
+        await bot_api.post_private_msg(user_id=event.user_id, text="执行失败，当前上下文为空")
+        return
     async for _ in agent._invoke("session_timeout"):
         pass
     await bot_api.post_private_msg(user_id=event.user_id, text="上下文已总结")
 
 
-@_register("clear_context", ROLE_ADMIN, "清空上下文历史")
+@_register("clearcontext", ROLE_ADMIN, "清空上下文历史")
 async def _cmd_clear_context(user_id, args, bot_api, event):
     agent.clear_history()
     await bot_api.post_private_msg(user_id=event.user_id, text="上下文已清空")

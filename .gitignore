@@ -12,6 +12,7 @@ config/prompt.txt
 config/agent/prompt.txt
 config/agent/settings.yaml
 config/tasks.json
+config/permissions.yaml
 
 # Data
 /data/

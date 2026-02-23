@@ -32,6 +32,17 @@ def test_load_permissions_empty_file():
     assert perms == {}
 
 
+def test_load_permissions_duplicate_takes_lower_role(caplog):
+    import logging
+    yaml_content = "admin:\n  - 111\ndeveloper:\n  - 111\n"
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         caplog.at_level(logging.WARNING, logger="src.core.commands"):
+        perms = commands.load_permissions()
+    assert perms["111"] == commands.ROLE_DEVELOPER
+    assert any("111" in r.message for r in caplog.records)
+
+
 def test_get_role_admin():
     yaml_content = "admin:\n  - 111\n"
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
@@ -52,6 +63,19 @@ def test_get_role_unknown_user():
 
 
 # --- Command dispatch ---
+
+@pytest.mark.anyio
+async def test_handle_command_bare_slash_acts_as_help():
+    yaml_content = "developer:\n  - 222\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 222
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True):
+        result = await commands.handle_command("222", "/", api, event)
+    assert result is True
+    api.post_private_msg.assert_called_once()
+
 
 @pytest.mark.anyio
 async def test_handle_command_not_a_command():
@@ -92,6 +116,7 @@ async def test_handle_command_unknown_command():
     assert result is True
     api.post_private_msg.assert_called_once()
     assert "未知指令" in api.post_private_msg.call_args[1]["text"]
+    assert "/help" in api.post_private_msg.call_args[1]["text"]
 
 
 @pytest.mark.anyio
@@ -103,7 +128,7 @@ async def test_handle_command_insufficient_role():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True):
-        result = await commands.handle_command("222", "/clear_context", api, event)
+        result = await commands.handle_command("222", "/clearcontext", api, event)
     assert result is True
     assert "权限不足" in api.post_private_msg.call_args[1]["text"]
 
@@ -148,10 +173,11 @@ async def test_token_command():
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
          patch("src.core.commands.agent") as mock_agent:
-        mock_agent._history = [HumanMessage("hi"), AIMessage("hello")]
-        mock_agent._llm = None
+        mock_agent._current_token_usage = 1234
         await commands.handle_command("222", "/token", api, event)
-    api.post_private_msg.assert_called_once()
+    text = api.post_private_msg.call_args[1]["text"]
+    assert "1234" in text
+    assert "估算" not in text
 
 
 # --- /raw ---
@@ -182,7 +208,7 @@ async def test_raw_command_empty_history():
          patch("src.core.commands.agent") as mock_agent:
         mock_agent._history = []
         await commands.handle_command("222", "/raw", api, event)
-    assert "已被清除" in api.post_private_msg.call_args[1]["text"]
+    assert "不存在于上下文" in api.post_private_msg.call_args[1]["text"]
 
 
 # --- /status ---
@@ -310,6 +336,22 @@ async def test_log_command_not_found():
 # --- /reload ---
 
 @pytest.mark.anyio
+async def test_reload_invalid_arg():
+    yaml_content = "admin:\n  - 111\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 111
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         patch("src.core.commands.agent") as mock_agent, \
+         patch("src.core.commands.contact_cache") as mock_cc:
+        mock_agent._graph = "something"
+        await commands.handle_command("111", "/reload badarg", api, event)
+    assert mock_agent._graph == "something"
+    mock_cc.refresh_all.assert_not_called()
+    assert "用法" in api.post_private_msg.call_args[1]["text"]
+
+@pytest.mark.anyio
 async def test_reload_config():
     yaml_content = "admin:\n  - 111\n"
     api = AsyncMock()
@@ -351,6 +393,7 @@ async def test_summarize_command():
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
          patch("src.core.commands.agent") as mock_agent:
+        mock_agent._history = [HumanMessage("x")]
         mock_agent._invoke = fake_invoke
         await commands.handle_command("111", "/summarize", api, event)
     api.post_private_msg.assert_called_once()
@@ -367,5 +410,83 @@ async def test_clear_context_command():
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
          patch("src.core.commands.agent") as mock_agent:
-        await commands.handle_command("111", "/clear_context", api, event)
+        await commands.handle_command("111", "/clearcontext", api, event)
     mock_agent.clear_history.assert_called_once()
+
+
+# --- /context empty ---
+
+@pytest.mark.anyio
+async def test_context_command_empty_history():
+    yaml_content = "developer:\n  - 222\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 222
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         patch("src.core.commands.agent") as mock_agent:
+        mock_agent._history = []
+        await commands.handle_command("222", "/context", api, event)
+    api.post_private_msg.assert_called_once()
+    assert "无内容" in api.post_private_msg.call_args[1]["text"]
+
+
+# --- /context type name format ---
+
+@pytest.mark.anyio
+async def test_context_command_type_names():
+    yaml_content = "developer:\n  - 222\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 222
+    written = []
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         patch("src.core.commands.agent") as mock_agent, \
+         patch("src.core.commands.tempfile") as mock_tmp:
+        mock_agent._history = [HumanMessage("hi"), AIMessage("hello")]
+        mock_file = MagicMock()
+        mock_file.__enter__ = lambda s: s
+        mock_file.__exit__ = lambda s, *a: None
+        mock_file.name = "/tmp/ctx.txt"
+        mock_file.write = lambda t: written.append(t)
+        mock_tmp.NamedTemporaryFile.return_value = mock_file
+        await commands.handle_command("222", "/context", api, event)
+    content = "".join(written)
+    assert "Message" not in content
+    assert "[Human]" in content or "[AI]" in content
+
+
+# --- /reload no args ---
+
+@pytest.mark.anyio
+async def test_reload_no_args():
+    yaml_content = "admin:\n  - 111\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 111
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         patch("src.core.commands.agent") as mock_agent, \
+         patch("src.core.commands.contact_cache") as mock_cc:
+        mock_agent._graph = "something"
+        await commands.handle_command("111", "/reload", api, event)
+        assert mock_agent._graph is None
+    mock_cc.refresh_all.assert_called_once()
+
+
+# --- /summarize empty history ---
+
+@pytest.mark.anyio
+async def test_summarize_command_empty_history():
+    yaml_content = "admin:\n  - 111\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 111
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         patch("src.core.commands.agent") as mock_agent:
+        mock_agent._history = []
+        await commands.handle_command("111", "/summarize", api, event)
+    text = api.post_private_msg.call_args[1]["text"]
+    assert "上下文为空" in text
