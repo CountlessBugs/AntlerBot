@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from src.core.media_processor import check_ffmpeg, download_media, trim_media
+from src.core.media_processor import check_ffmpeg, download_media, trim_media, transcribe_media
 
 
 @pytest.fixture(autouse=True)
@@ -75,3 +75,40 @@ async def test_trim_media_zero_max_duration():
     with patch("src.core.media_processor._get_duration", return_value=9999.0):
         result = await trim_media("/tmp/voice.amr", max_duration=0)
         assert result == "/tmp/voice.amr"
+
+
+# --- Transcribe ---
+
+@pytest.mark.anyio
+async def test_transcribe_image():
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = MagicMock(content="一只橘猫趴在沙发上")
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=mock_file)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_file.read.return_value = b"fake image bytes"
+    with patch("src.core.media_processor._get_transcription_llm", return_value=mock_llm), \
+         patch("builtins.open", return_value=mock_file):
+        result = await transcribe_media("/tmp/cat.jpg", "image")
+        assert result == "一只橘猫趴在沙发上"
+
+
+@pytest.mark.anyio
+async def test_transcribe_audio():
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = MagicMock(content="用户说了你好")
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=mock_file)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_file.read.return_value = b"fake audio bytes"
+    with patch("src.core.media_processor._get_transcription_llm", return_value=mock_llm), \
+         patch("builtins.open", return_value=mock_file):
+        result = await transcribe_media("/tmp/voice.amr", "audio")
+        assert result == "用户说了你好"
+
+
+@pytest.mark.anyio
+async def test_transcribe_failure():
+    with patch("src.core.media_processor._get_transcription_llm", side_effect=Exception("no model")):
+        result = await transcribe_media("/tmp/cat.jpg", "image")
+        assert result is None

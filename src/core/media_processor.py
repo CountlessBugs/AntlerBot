@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -82,3 +83,70 @@ async def trim_media(path: str, max_duration: int) -> str | None:
         logger.warning("File %s exceeds %ds but ffmpeg unavailable, skipping", path, max_duration)
         return None
     return await _run_ffmpeg_trim(path, max_duration)
+
+
+_transcription_llm = None
+
+_TRANSCRIPTION_PROMPTS = {
+    "image": "请简要描述这张图片的内容，用一两句话概括。",
+    "audio": "请转述这段音频的内容。",
+    "video": "请简要描述这段视频的内容，用一两句话概括。",
+    "document": "请简要概括这份文档的内容。",
+}
+
+
+def _get_transcription_llm(settings: dict | None = None):
+    """Get or create the transcription LLM. Uses main LLM if no override configured."""
+    global _transcription_llm
+    if _transcription_llm is not None:
+        return _transcription_llm
+
+    media_cfg = (settings or {}).get("media", {})
+    model = media_cfg.get("transcription_model", "")
+    provider = media_cfg.get("transcription_provider", "")
+
+    if model and provider:
+        api_key = os.environ.get("TRANSCRIPTION_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+        base_url = os.environ.get("TRANSCRIPTION_BASE_URL", os.environ.get("OPENAI_BASE_URL", ""))
+        kwargs = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["base_url"] = base_url
+        from langchain.chat_models import init_chat_model
+        _transcription_llm = init_chat_model(model, model_provider=provider, **kwargs)
+    else:
+        from src.core.agent import _llm, _ensure_initialized
+        _ensure_initialized()
+        _transcription_llm = _llm
+
+    return _transcription_llm
+
+
+async def transcribe_media(path: str, media_type: str, settings: dict | None = None) -> str | None:
+    """Transcribe a media file using the configured LLM. Returns description text or None."""
+    try:
+        llm = _get_transcription_llm(settings)
+        prompt = _TRANSCRIPTION_PROMPTS.get(media_type, "请描述这个文件的内容。")
+
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("utf-8")
+
+        mime_map = {
+            "image": "image/png",
+            "audio": "audio/mpeg",
+            "video": "video/mp4",
+            "document": "application/pdf",
+        }
+        mime = mime_map.get(media_type, "application/octet-stream")
+
+        from langchain_core.messages import HumanMessage
+        msg = HumanMessage(content=[
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
+        ])
+        response = llm.invoke([msg])
+        return response.content
+    except Exception:
+        logger.warning("Transcription failed for %s (%s)", path, media_type, exc_info=True)
+        return None
