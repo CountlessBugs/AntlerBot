@@ -1,4 +1,7 @@
+import asyncio
 import logging
+import uuid
+from dataclasses import dataclass, field
 
 from ncatbot.core.event.message_segment import (
     Text, At, AtAll, Face, Reply, Image, Record, Video, File,
@@ -8,6 +11,30 @@ from src.core import contact_cache
 from src.data.face_map import FACE_MAP
 
 logger = logging.getLogger(__name__)
+
+MEDIA_PREFIX = "media:"
+
+
+@dataclass
+class MediaTask:
+    placeholder_id: str
+    task: asyncio.Task
+    media_type: str  # "image" / "audio" / "video" / "document"
+
+
+@dataclass
+class ParsedMessage:
+    text: str
+    media_tasks: list[MediaTask] = field(default_factory=list)
+
+    def resolve(self, results: dict[str, str] | None = None) -> str:
+        if not results:
+            return self.text
+        out = self.text
+        for pid, replacement in results.items():
+            out = out.replace(f"{{{{{MEDIA_PREFIX}{pid}}}}}", replacement)
+        return out
+
 
 _MEDIA_PLACEHOLDERS = {
     Image: "<image />",

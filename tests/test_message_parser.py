@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import src.core.contact_cache as contact_cache
-from src.core.message_parser import parse_message
+from src.core.message_parser import parse_message, ParsedMessage, MediaTask
 
 
 @pytest.fixture(autouse=True)
@@ -185,3 +185,31 @@ async def test_mixed_message():
     ]
     result = await parse_message(msg, DEFAULT_SETTINGS)
     assert result == '你好 @老王 <face name="微笑" /><image />'
+
+
+# --- ParsedMessage dataclass ---
+
+def test_parsed_message_no_media():
+    pm = ParsedMessage(text="hello world", media_tasks=[])
+    assert pm.text == "hello world"
+    assert pm.media_tasks == []
+
+
+def test_parsed_message_with_placeholder():
+    pm = ParsedMessage(text="look {{media:abc123}} nice", media_tasks=[])
+    assert "{{media:abc123}}" in pm.text
+
+
+def test_parsed_message_resolve_no_tasks():
+    pm = ParsedMessage(text="hello world", media_tasks=[])
+    assert pm.resolve() == "hello world"
+
+
+def test_parsed_message_resolve_replaces_placeholders():
+    pm = ParsedMessage(text="look {{media:id1}} nice", media_tasks=[])
+    assert pm.resolve({"id1": '<image filename="cat.jpg">a cat</image>'}) == 'look <image filename="cat.jpg">a cat</image> nice'
+
+
+def test_parsed_message_resolve_failed_placeholder():
+    pm = ParsedMessage(text="see {{media:id1}} here", media_tasks=[])
+    assert pm.resolve({"id1": '<image error="处理失败" />'}) == 'see <image error="处理失败" /> here'
