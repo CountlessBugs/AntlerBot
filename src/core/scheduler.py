@@ -4,6 +4,8 @@ import logging
 from datetime import datetime, timedelta
 from apscheduler.triggers.date import DateTrigger
 from src.core import agent
+from src.core.message_parser import ParsedMessage
+from src.core.media_processor import _MEDIA_TAG
 
 logger = logging.getLogger(__name__)
 
@@ -114,3 +116,23 @@ async def _on_session_clear() -> None:
     agent.clear_history()
     from src.core import contact_cache
     await contact_cache.refresh_all()
+
+
+async def _resolve_media(pm: ParsedMessage, timeout: float) -> str:
+    """Await all media tasks and replace placeholders."""
+    if not pm.media_tasks:
+        return pm.text
+
+    results: dict[str, str] = {}
+    for mt in pm.media_tasks:
+        tag = _MEDIA_TAG.get(mt.media_type, mt.media_type)
+        try:
+            result = await asyncio.wait_for(mt.task, timeout=timeout)
+            results[mt.placeholder_id] = result
+        except asyncio.TimeoutError:
+            mt.task.cancel()
+            results[mt.placeholder_id] = f'<{tag} error="处理超时" />'
+        except Exception:
+            results[mt.placeholder_id] = f'<{tag} error="处理失败" />'
+
+    return pm.resolve(results)
