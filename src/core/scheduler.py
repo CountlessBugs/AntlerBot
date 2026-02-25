@@ -28,16 +28,17 @@ def get_current_source() -> dict | None:
     return {"type": type_, "id": id_}
 
 
-def _batch(items: list) -> list[tuple[str, list[str], list]]:
-    groups: dict[str, tuple[list, list]] = {}
+def _batch(items: list) -> list[tuple[str, list[str], list, list]]:
+    groups: dict[str, tuple[list, list, list]] = {}
     order: list[str] = []
-    for _, _, source_key, msg, reply_fn in items:
+    for _, _, source_key, msg, reply_fn, parsed_msg in items:
         if source_key not in groups:
-            groups[source_key] = ([], [])
+            groups[source_key] = ([], [], [])
             order.append(source_key)
         groups[source_key][0].append(msg)
         groups[source_key][1].append(reply_fn)
-    return [(k, groups[k][0], groups[k][1]) for k in order]
+        groups[source_key][2].append(parsed_msg)
+    return [(k, groups[k][0], groups[k][1], groups[k][2]) for k in order]
 
 
 def init_timeout(apscheduler) -> None:
@@ -49,11 +50,12 @@ async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
     return "".join([s async for s in agent._invoke(reason, message, **kwargs)])
 
 
-async def enqueue(priority: int, source_key: str, msg: str, reply_fn) -> None:
+async def enqueue(priority: int, source_key: str, msg: str, reply_fn,
+                  parsed_message: ParsedMessage | None = None) -> None:
     global _processing, _counter
     async with _lock:
         _counter += 1
-        await _queue.put((priority, _counter, source_key, msg, reply_fn))
+        await _queue.put((priority, _counter, source_key, msg, reply_fn, parsed_message))
         should_start = not _processing
         if should_start:
             _processing = True
@@ -76,10 +78,20 @@ async def _process_loop():
                 while not _queue.empty():
                     items.append(_queue.get_nowait())
             batches = _batch(items)
-            for source_key, msgs, reply_fns in batches:
+            for source_key, msgs, reply_fns, parsed_msgs in batches:
                 _current_source = source_key
-                logger.info("processing | source=%s batch=%d", source_key, len(msgs))
-                async for seg in agent._invoke("user_message", "\n".join(msgs)):
+                # Resolve media tasks for all messages in batch
+                settings = agent.load_settings()
+                timeout = settings.get("media", {}).get("timeout", 60)
+                resolved_msgs = []
+                for msg, pm in zip(msgs, parsed_msgs):
+                    if pm and pm.media_tasks:
+                        resolved_text = await _resolve_media(pm, timeout)
+                        resolved_msgs.append(msg.replace(pm.text, resolved_text, 1))
+                    else:
+                        resolved_msgs.append(msg)
+                logger.info("processing | source=%s batch=%d", source_key, len(resolved_msgs))
+                async for seg in agent._invoke("user_message", "\n".join(resolved_msgs)):
                     await reply_fns[-1](seg)
             if _apscheduler is not None and agent.has_history():
                 settings = agent.load_settings()
