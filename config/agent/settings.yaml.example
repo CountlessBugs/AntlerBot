@@ -1,3 +1,29 @@
 context_limit_tokens: 8000
 timeout_summarize_seconds: 1800
 timeout_clear_seconds: 3600
+reply_max_length: 50
+
+media:
+  transcription_model: ""
+  transcription_provider: ""
+  timeout: 60
+
+  image:
+    transcribe: false
+    passthrough: false
+
+  audio:
+    transcribe: false
+    passthrough: false
+    max_duration: 60
+    trim_over_limit: true
+
+  video:
+    transcribe: false
+    passthrough: false
+    max_duration: 30
+    trim_over_limit: true
+
+  document:
+    transcribe: false
+    passthrough: false
