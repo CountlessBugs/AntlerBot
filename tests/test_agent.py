@@ -146,7 +146,7 @@ async def test_invoke_executes_sequentially():
 def test_load_settings_defaults_when_missing(tmp_path):
     with patch("src.core.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
         result = agent_mod.load_settings()
-    assert result == {"context_limit_tokens": 8000, "timeout_summarize_seconds": 1800, "timeout_clear_seconds": 3600, "reply_max_length": 50}
+    assert result == agent_mod._SETTINGS_DEFAULTS
 
 
 def test_load_settings_reads_file(tmp_path):

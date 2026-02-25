@@ -29,6 +29,15 @@ _SETTINGS_DEFAULTS = {
     "timeout_summarize_seconds": 1800,
     "timeout_clear_seconds": 3600,
     "reply_max_length": 50,
+    "media": {
+        "transcription_model": "",
+        "transcription_provider": "",
+        "timeout": 60,
+        "image": {"transcribe": False, "passthrough": False},
+        "audio": {"transcribe": False, "passthrough": False, "max_duration": 60, "trim_over_limit": True},
+        "video": {"transcribe": False, "passthrough": False, "max_duration": 30, "trim_over_limit": True},
+        "document": {"transcribe": False, "passthrough": False},
+    },
 }
 
 
@@ -38,7 +47,15 @@ def load_settings() -> dict:
     import yaml
     with open(SETTINGS_PATH, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    return {**_SETTINGS_DEFAULTS, **data}
+    merged = {**_SETTINGS_DEFAULTS, **data}
+    # Deep-merge media config
+    default_media = _SETTINGS_DEFAULTS.get("media", {})
+    user_media = data.get("media", {})
+    merged_media = {**default_media, **user_media}
+    for key in ("image", "audio", "video", "document"):
+        merged_media[key] = {**default_media.get(key, {}), **user_media.get(key, {})}
+    merged["media"] = merged_media
+    return merged
 
 _llm = None
 _graph = None
