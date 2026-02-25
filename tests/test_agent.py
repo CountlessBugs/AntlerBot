@@ -24,7 +24,8 @@ def reset_agent_state():
 def test_load_prompt_missing_creates_default(tmp_path, caplog):
     path = str(tmp_path / "prompt.txt")
     from src.core.agent import load_prompt, PROMPT_EXAMPLE_PATH
-    expected = open(PROMPT_EXAMPLE_PATH, encoding="utf-8").read()
+    with open(PROMPT_EXAMPLE_PATH, encoding="utf-8") as f:
+        expected = f.read()
     with patch("src.core.agent.PROMPT_PATH", path), caplog.at_level(logging.INFO, logger="src.core.agent"):
         result = load_prompt()
     assert result == expected

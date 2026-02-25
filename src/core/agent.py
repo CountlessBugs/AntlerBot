@@ -71,7 +71,8 @@ def load_prompt() -> str | None:
         os.makedirs(os.path.dirname(PROMPT_PATH), exist_ok=True)
         if not os.path.exists(PROMPT_EXAMPLE_PATH):
             logger.warning("prompt.txt.example not found; creating empty prompt.txt and skipping system prompt.")
-            open(PROMPT_PATH, "w").close()
+            with open(PROMPT_PATH, "w"):
+                pass
             return None
         import shutil
         shutil.copy(PROMPT_EXAMPLE_PATH, PROMPT_PATH)
