@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from src.core.media_processor import check_ffmpeg, download_media, trim_media, transcribe_media
+from src.core.media_processor import (
+    check_ffmpeg, download_media, trim_media, transcribe_media,
+    process_media_segment,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -112,3 +115,62 @@ async def test_transcribe_failure():
     with patch("src.core.media_processor._get_transcription_llm", side_effect=Exception("no model")):
         result = await transcribe_media("/tmp/cat.jpg", "image")
         assert result is None
+
+
+# --- Process media segment ---
+
+@pytest.mark.anyio
+async def test_process_image_transcribe():
+    seg = MagicMock()
+    seg.url = "https://example.com/cat.jpg"
+    seg.file_name = "cat.jpg"
+    seg.download = AsyncMock(return_value="/tmp/cat.jpg")
+    settings = {"media": {"image": {"transcribe": True}}}
+    with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value="一只猫"), \
+         patch("src.core.media_processor._cleanup_temp"):
+        result = await process_media_segment(seg, "image", settings)
+        assert result == '<image filename="cat.jpg">一只猫</image>'
+
+
+@pytest.mark.anyio
+async def test_process_image_disabled():
+    seg = MagicMock()
+    seg.file_name = "cat.jpg"
+    settings = {"media": {"image": {"transcribe": False}}}
+    result = await process_media_segment(seg, "image", settings)
+    assert result == "<image />"
+
+
+@pytest.mark.anyio
+async def test_process_audio_transcribe_with_trim():
+    seg = MagicMock()
+    seg.file_name = "voice.amr"
+    seg.download = AsyncMock(return_value="/tmp/voice.amr")
+    settings = {"media": {"audio": {"transcribe": True, "max_duration": 60, "trim_over_limit": True}}}
+    with patch("src.core.media_processor.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
+         patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value="你好"), \
+         patch("src.core.media_processor._cleanup_temp"):
+        result = await process_media_segment(seg, "audio", settings)
+        assert result == '<audio filename="voice.amr">你好</audio>'
+
+
+@pytest.mark.anyio
+async def test_process_download_failure():
+    seg = MagicMock()
+    seg.file_name = "pic.jpg"
+    seg.download = AsyncMock(side_effect=Exception("network error"))
+    settings = {"media": {"image": {"transcribe": True}}}
+    result = await process_media_segment(seg, "image", settings)
+    assert result == '<image error="下载失败" />'
+
+
+@pytest.mark.anyio
+async def test_process_transcription_failure():
+    seg = MagicMock()
+    seg.file_name = "pic.jpg"
+    seg.download = AsyncMock(return_value="/tmp/pic.jpg")
+    settings = {"media": {"image": {"transcribe": True}}}
+    with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value=None), \
+         patch("src.core.media_processor._cleanup_temp"):
+        result = await process_media_segment(seg, "image", settings)
+        assert result == '<image error="转述失败" />'

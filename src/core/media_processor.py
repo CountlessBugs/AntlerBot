@@ -150,3 +150,62 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
     except Exception:
         logger.warning("Transcription failed for %s (%s)", path, media_type, exc_info=True)
         return None
+
+
+_MEDIA_TAG = {
+    "image": "image",
+    "audio": "audio",
+    "video": "video",
+    "document": "file",
+}
+
+
+def _cleanup_temp(path: str) -> None:
+    """Remove a temp file and its parent dir if empty."""
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+            parent = os.path.dirname(path)
+            if parent and not os.listdir(parent):
+                os.rmdir(parent)
+    except Exception:
+        logger.debug("Cleanup failed for %s", path, exc_info=True)
+
+
+async def process_media_segment(seg, media_type: str, settings: dict) -> str:
+    """Full pipeline: download → trim → transcribe → format result."""
+    tag = _MEDIA_TAG.get(media_type, media_type)
+    type_cfg = settings.get("media", {}).get(media_type, {})
+    filename = getattr(seg, "file_name", "") or ""
+
+    if not type_cfg.get("transcribe", False):
+        return f"<{tag} />"
+
+    # Download
+    path = await download_media(seg)
+    if not path:
+        return f'<{tag} error="下载失败" />'
+
+    try:
+        # Trim (audio/video only)
+        if media_type in ("audio", "video"):
+            max_dur = type_cfg.get("max_duration", 0)
+            if max_dur > 0:
+                trimmed = await trim_media(path, max_dur)
+                if trimmed is None:
+                    if type_cfg.get("trim_over_limit", True):
+                        return f'<{tag} error="裁剪失败" />'
+                    else:
+                        return f"<{tag} />"
+                if trimmed != path:
+                    _cleanup_temp(path)
+                    path = trimmed
+
+        # Transcribe
+        desc = await transcribe_media(path, media_type, settings)
+        if desc:
+            fn_attr = f' filename="{filename}"' if filename else ""
+            return f"<{tag}{fn_attr}>{desc}</{tag}>"
+        return f'<{tag} error="转述失败" />'
+    finally:
+        _cleanup_temp(path)
