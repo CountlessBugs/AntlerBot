@@ -5,3 +5,8 @@ d90b027d671f43331d462f4d70c54c18991e9d74 feat(media): add ffmpeg-based media tri
 898d8e6e71c93df62a9c57abdedaf8c0b720b6a8 feat(media): add LLM-based media transcription
 9227b9202a91446f594cadf4b45ece67504df1ed feat(media): add process_media_segment orchestrator
 ebd2b87564d2805b5683c9aedf7ee3ec0db11ac1 feat(parser): return ParsedMessage with async media tasks
+b89e9388a2ee585efa9502cfccb015e94b2ef081 feat(scheduler): add _resolve_media for awaiting media tasks
+5b3f5cecae9306084e25bbc3ac2af860881f7337 feat(scheduler): resolve media tasks before invoking agent
+ea26d0304b2fa7729a6e279efa846299a258fe30 test: add integration test for media transcription flow
+4164b4b44a8f62b6dadad7918b6b94dd2f2be67d fix: close unclosed file handles in load_prompt and test
+5bad014d3a2102d8f0505372ea1a2708ab396cc1 chore: add pytest.ini to filter AsyncMock RuntimeWarning

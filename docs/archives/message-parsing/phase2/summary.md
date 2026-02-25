@@ -1,6 +1,6 @@
 ## Summary
 
-Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and media transcription settings to the configuration system (Tasks 1-2). Built the complete `media_processor.py` module with ffmpeg check, media download, duration-based trimming, LLM multimodal transcription, and a full orchestrator pipeline (Tasks 3-6). Updated `parse_message()` to return `ParsedMessage` with async media tasks (Task 7). 16 unit tests for media_processor, 5 for ParsedMessage, 3 for parse_message integration.
+Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and media transcription settings to the configuration system (Tasks 1-2). Built the complete `media_processor.py` module with ffmpeg check, media download, duration-based trimming, LLM multimodal transcription, and a full orchestrator pipeline (Tasks 3-6). Updated `parse_message()` to return `ParsedMessage` with async media tasks (Task 7). Added `_resolve_media` to scheduler and wired the full handler → parser → scheduler → agent pipeline (Tasks 8-10). 151 tests, 0 warnings.
 
 ## Tasks Completed
 
@@ -53,16 +53,44 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Updated all 18 existing tests from `assert await parse_message(...) == "string"` to `assert result.text == "string"`
 - 3 new tests: `test_parse_returns_parsed_message`, `test_parse_image_transcribe_creates_task`, `test_parse_image_no_transcribe_placeholder`
 
+### Task 8: Add _resolve_media to scheduler
+
+- Added `_resolve_media()` to `src/core/scheduler.py` that awaits all media tasks with configurable timeout
+- On timeout: cancels the task, inserts `<tag error="处理超时" />` placeholder
+- On exception: inserts `<tag error="处理失败" />` placeholder
+- Imported `ParsedMessage` and `_MEDIA_TAG` into scheduler
+- 3 new tests in `tests/test_scheduler_media.py`: success, timeout, no-media passthrough
+
+### Task 9: Update message_handler and scheduler for ParsedMessage flow
+
+- Updated `enqueue()` signature to accept optional `parsed_message` parameter
+- Updated `_batch()` to carry 6-element tuples (added `parsed_msg`)
+- Updated `_process_loop()` to call `_resolve_media()` before invoking agent, replacing placeholder text in the formatted message
+- Updated `message_handler.py`: both `on_group` and `on_private` now pass `parsed.text` to `format_message` and the full `ParsedMessage` to `enqueue`
+- Updated 6 existing scheduler tests for the new tuple shape
+
+### Task 10: Full integration test and final verification
+
+- Added `test_group_message_with_media_transcription` to `tests/test_message_handler.py`
+- Full suite: 151 passed, 0 warnings
+
+### Bonus fixes
+
+- Fixed unclosed file handle in `agent.py` `load_prompt()` (`open().close()` → `with open`)
+- Fixed same issue in `tests/test_agent.py`
+- Added `pytest.ini` to filter known `AsyncMock` RuntimeWarning from Python stdlib
+
 ## Deviations from Plan
 
 - `settings.yaml` is gitignored, so it was not committed — the defaults in `agent.py` serve as the source of truth
-- Updated `test_load_settings_defaults_when_missing` in `test_agent.py` to reference `_SETTINGS_DEFAULTS` directly instead of hardcoding the dict, making it resilient to future default additions
-- Task 5 transcribe tests: plan mocked `builtins.open` with bare `MagicMock()`, but `base64.b64encode` needs real bytes — fixed by setting `mock_file.read.return_value = b"fake image bytes"` with proper context manager setup
+- Updated `test_load_settings_defaults_when_missing` in `test_agent.py` to reference `_SETTINGS_DEFAULTS` directly
+- Task 5 transcribe tests: fixed mock to provide real bytes for `base64.b64encode`
+- Task 9: used `msg.replace(pm.text, resolved_text, 1)` with count=1 to avoid replacing duplicate substrings
 
 ## Key Decisions
 
 - Used `MEDIA_PREFIX = "media:"` as a module-level constant rather than inlining the string
-- Deep-merge in `load_settings()` only goes two levels deep (top-level media keys + per-type dicts), which is sufficient for the current config structure
+- Deep-merge in `load_settings()` only goes two levels deep, sufficient for current config structure
 
 ## Lessons Learned
 
@@ -70,5 +98,4 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 
 ## Follow-ups
 
-- Tasks 8-9 remain: add `_resolve_media` to scheduler, update message handler to pass `ParsedMessage` through
-- Task 10: full integration test
+- None — Phase 2 is complete
