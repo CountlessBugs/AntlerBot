@@ -1,0 +1,2 @@
+7775498922a5ff4b6e9e00d95efb783bc4c95038 feat: add multi-type message parsing with face map and reply support
+91536453b5fd149ed4c2c839f0cb2fe88e24ea72 refactor(parser): use XML tags for media and unsupported placeholders
