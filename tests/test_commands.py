@@ -208,7 +208,7 @@ async def test_raw_command_empty_history():
          patch("src.core.commands.agent") as mock_agent:
         mock_agent._history = []
         await commands.handle_command("222", "/raw", api, event)
-    assert "不存在于上下文" in api.post_private_msg.call_args[1]["text"]
+    assert "不存在可查看的消息" in api.post_private_msg.call_args[1]["text"]
 
 
 # --- /status ---
@@ -374,6 +374,7 @@ async def test_reload_contact():
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
          patch("src.core.commands.contact_cache") as mock_cc:
+        mock_cc.refresh_all = AsyncMock()
         await commands.handle_command("111", "/reload contact", api, event)
     mock_cc.refresh_all.assert_called_once()
 
@@ -469,6 +470,7 @@ async def test_reload_no_args():
          patch("os.path.exists", return_value=True), \
          patch("src.core.commands.agent") as mock_agent, \
          patch("src.core.commands.contact_cache") as mock_cc:
+        mock_cc.refresh_all = AsyncMock()
         mock_agent._graph = "something"
         await commands.handle_command("111", "/reload", api, event)
         assert mock_agent._graph is None

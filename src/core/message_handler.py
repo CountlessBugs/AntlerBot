@@ -1,5 +1,6 @@
 import logging
-from src.core import scheduler, contact_cache, commands
+from src.core import scheduler, contact_cache, commands, message_parser
+from src.core.agent import load_settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,9 @@ def register(bot) -> None:
     async def on_group(e: GroupMessageEvent):
         group_name = contact_cache.get_group_display_name(str(e.group_id))
         sender_name = await get_sender_name(str(e.sender.user_id), e.sender.nickname, e.sender.card or "")
-        msg = format_message(e.raw_message, sender_name, group_name)
+        settings = load_settings()
+        parsed = await message_parser.parse_message(e.message, settings)
+        msg = format_message(parsed, sender_name, group_name)
         await scheduler.enqueue(
             scheduler.PRIORITY_USER_MESSAGE,
             f"group_{e.group_id}",
@@ -49,7 +52,9 @@ def register(bot) -> None:
             if await commands.handle_command(str(e.sender.user_id), e.raw_message, bot.api, e):
                 return
         sender_name = await get_sender_name(str(e.sender.user_id), e.sender.nickname)
-        msg = format_message(e.raw_message, sender_name)
+        settings = load_settings()
+        parsed = await message_parser.parse_message(e.message, settings)
+        msg = format_message(parsed, sender_name)
         await scheduler.enqueue(
             scheduler.PRIORITY_USER_MESSAGE,
             f"private_{e.user_id}",

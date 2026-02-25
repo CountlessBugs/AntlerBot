@@ -49,9 +49,9 @@ Parse Text, At, Face, and Reply segments into readable text with XML tags. No me
 @备注或昵称
 ```
 
-**Face**: Use a built-in `face_id → name` mapping dict (~200 entries). Unknown IDs render as `<face>表情</face>`.
+**Face**: Use a built-in `face_id → name` mapping dict (~200 entries). Unknown IDs render as `<face />`.
 ```
-<face>微笑</face>
+<face name="微笑" />
 ```
 
 **Reply**: Call NcatBot API with `message_id` to fetch the original message content. Truncate to `reply_max_length` characters (default 50, configurable). On API failure: `<reply_to>无法获取原消息</reply_to>`.
@@ -69,7 +69,7 @@ Parse Text, At, Face, and Reply segments into readable text with XML tags. No me
 - New `src/core/message_parser.py`: `parse_message(message_array, settings) -> str`
 - `format_message()`: Accept parsed string instead of raw_message
 - New `src/data/face_map.py`: Built-in face_id → name mapping dict
-- `settings.yaml`: Add `media.reply_max_length` (default 50)
+- `settings.yaml`: Add `reply_max_length` (default 50)
 
 ## Phase 2: Media Transcription
 
@@ -144,7 +144,7 @@ When `passthrough=true` and `transcribe=false` for a media type:
 
 ```python
 # Pure text (Phase 1 / transcription mode)
-HumanMessage("<sender>UserA</sender>hello <face>微笑</face>")
+HumanMessage("<sender>UserA</sender>hello <face name=\"微笑\" />")
 
 # Transcription mode
 HumanMessage("<sender>UserA</sender><transcription type=\"image\">an orange cat on a sofa</transcription> look at my cat")
@@ -171,13 +171,13 @@ If both `transcribe` and `passthrough` are true, `transcribe` takes precedence.
 ### settings.yaml additions
 
 ```yaml
+# Reply truncation (top-level)
+reply_max_length: 50
+
 media:
   # Transcription model (empty = reuse main LLM)
   transcription_model: ""
   transcription_provider: ""
-
-  # Reply truncation
-  reply_max_length: 50
 
   # Per-type config
   image:
