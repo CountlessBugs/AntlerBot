@@ -30,8 +30,6 @@ _SETTINGS_DEFAULTS = {
     "timeout_clear_seconds": 3600,
     "reply_max_length": 50,
     "media": {
-        "transcription_model": "",
-        "transcription_provider": "",
         "timeout": 60,
         "image": {"transcribe": False, "passthrough": False},
         "audio": {"transcribe": False, "passthrough": False, "max_duration": 60, "trim_over_limit": True},

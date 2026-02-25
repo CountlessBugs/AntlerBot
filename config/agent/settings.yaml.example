@@ -4,8 +4,6 @@ timeout_clear_seconds: 3600
 reply_max_length: 50
 
 media:
-  transcription_model: ""
-  transcription_provider: ""
   timeout: 60
 
   image:

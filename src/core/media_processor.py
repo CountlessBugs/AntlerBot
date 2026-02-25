@@ -101,9 +101,8 @@ def _get_transcription_llm(settings: dict | None = None):
     if _transcription_llm is not None:
         return _transcription_llm
 
-    media_cfg = (settings or {}).get("media", {})
-    model = media_cfg.get("transcription_model", "")
-    provider = media_cfg.get("transcription_provider", "")
+    model = os.environ.get("TRANSCRIPTION_MODEL", "")
+    provider = os.environ.get("TRANSCRIPTION_PROVIDER", "")
 
     if model and provider:
         api_key = os.environ.get("TRANSCRIPTION_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
