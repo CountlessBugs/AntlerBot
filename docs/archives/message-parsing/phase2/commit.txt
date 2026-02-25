@@ -4,3 +4,4 @@ b2fd4bbe718e640f912768b362c5c021952a9976 feat(media): add ffmpeg check and media
 d90b027d671f43331d462f4d70c54c18991e9d74 feat(media): add ffmpeg-based media trimming
 898d8e6e71c93df62a9c57abdedaf8c0b720b6a8 feat(media): add LLM-based media transcription
 9227b9202a91446f594cadf4b45ece67504df1ed feat(media): add process_media_segment orchestrator
+ebd2b87564d2805b5683c9aedf7ee3ec0db11ac1 feat(parser): return ParsedMessage with async media tasks

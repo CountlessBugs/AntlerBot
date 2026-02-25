@@ -1,6 +1,6 @@
 ## Summary
 
-Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and media transcription settings to the configuration system (Tasks 1-2). Then built the complete `media_processor.py` module with ffmpeg check, media download, duration-based trimming, LLM multimodal transcription, and a full orchestrator pipeline (Tasks 3-6). 16 unit tests for media_processor, 5 for ParsedMessage.
+Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and media transcription settings to the configuration system (Tasks 1-2). Built the complete `media_processor.py` module with ffmpeg check, media download, duration-based trimming, LLM multimodal transcription, and a full orchestrator pipeline (Tasks 3-6). Updated `parse_message()` to return `ParsedMessage` with async media tasks (Task 7). 16 unit tests for media_processor, 5 for ParsedMessage, 3 for parse_message integration.
 
 ## Tasks Completed
 
@@ -43,6 +43,16 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Error tags for each failure mode: `下载失败`, `裁剪失败`, `转述失败`
 - 5 unit tests: image transcribe, disabled, audio with trim, download failure, transcription failure
 
+### Task 7: Update parse_message() to return ParsedMessage with media tasks
+
+- Changed `parse_message()` return type from `str` to `ParsedMessage`
+- Replaced `_MEDIA_PLACEHOLDERS` dict with `_MEDIA_TYPE_MAP` (maps segment classes to media type strings)
+- When `transcribe: True` in settings, creates `asyncio.Task` via `media_processor.process_media_segment()`, inserts `{{media:uuid}}` placeholder, appends `MediaTask` to result
+- When `transcribe: False`, uses `media_processor._MEDIA_TAG` for static `<tag />` placeholders
+- Added `media_processor` import to `message_parser.py`
+- Updated all 18 existing tests from `assert await parse_message(...) == "string"` to `assert result.text == "string"`
+- 3 new tests: `test_parse_returns_parsed_message`, `test_parse_image_transcribe_creates_task`, `test_parse_image_no_transcribe_placeholder`
+
 ## Deviations from Plan
 
 - `settings.yaml` is gitignored, so it was not committed — the defaults in `agent.py` serve as the source of truth
@@ -60,5 +70,5 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 
 ## Follow-ups
 
-- Tasks 7-9 remain: update `parse_message()` to return `ParsedMessage` with media tasks, add `_resolve_media` to scheduler, update message handler to pass `ParsedMessage` through
+- Tasks 8-9 remain: add `_resolve_media` to scheduler, update message handler to pass `ParsedMessage` through
 - Task 10: full integration test
