@@ -98,4 +98,4 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 
 ## Follow-ups
 
-- None — Phase 2 is complete
+- Phase 3: media passthrough via base64 content blocks.
