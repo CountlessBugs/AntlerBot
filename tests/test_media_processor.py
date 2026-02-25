@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from src.core.media_processor import check_ffmpeg, download_media
+from src.core.media_processor import check_ffmpeg, download_media, trim_media
 
 
 @pytest.fixture(autouse=True)
@@ -38,3 +38,40 @@ async def test_download_media_from_url():
     result = await download_media(seg)
     seg.download.assert_awaited_once()
     assert result is not None
+
+
+# --- Trim ---
+
+@pytest.mark.anyio
+async def test_trim_media_under_limit():
+    """File under max_duration is returned as-is."""
+    with patch("src.core.media_processor._get_duration", return_value=30.0):
+        result = await trim_media("/tmp/voice.amr", max_duration=60)
+        assert result == "/tmp/voice.amr"
+
+
+@pytest.mark.anyio
+async def test_trim_media_over_limit_trims():
+    """File over max_duration gets trimmed via ffmpeg."""
+    with patch("src.core.media_processor._get_duration", return_value=120.0), \
+         patch("src.core.media_processor.check_ffmpeg", return_value=True), \
+         patch("src.core.media_processor._run_ffmpeg_trim", new_callable=AsyncMock, return_value="/tmp/trimmed.amr"):
+        result = await trim_media("/tmp/voice.amr", max_duration=60)
+        assert result == "/tmp/trimmed.amr"
+
+
+@pytest.mark.anyio
+async def test_trim_media_over_limit_no_ffmpeg():
+    """File over limit with no ffmpeg returns None."""
+    with patch("src.core.media_processor._get_duration", return_value=120.0), \
+         patch("src.core.media_processor.check_ffmpeg", return_value=False):
+        result = await trim_media("/tmp/voice.amr", max_duration=60)
+        assert result is None
+
+
+@pytest.mark.anyio
+async def test_trim_media_zero_max_duration():
+    """max_duration=0 means unlimited, no trim."""
+    with patch("src.core.media_processor._get_duration", return_value=9999.0):
+        result = await trim_media("/tmp/voice.amr", max_duration=0)
+        assert result == "/tmp/voice.amr"
