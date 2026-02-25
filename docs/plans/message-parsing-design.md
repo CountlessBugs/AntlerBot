@@ -59,9 +59,9 @@ Parse Text, At, Face, and Reply segments into readable text with XML tags. No me
 <reply_to>被引用消息内容前50字...</reply_to>
 ```
 
-**Unsupported segments** (Forward, Share, Contact, Location, etc.): Use the segment's `get_summary()` method, or `[unsupported: type_name]`.
+**Unsupported segments** (Forward, Share, Contact, Location, etc.): Use the segment's `get_summary()` method, or `<unsupported type="type_name" />`.
 
-**Media segments** (Image, Record, Video, File): In Phase 1, render as `[image]` / `[audio]` / `[video]` / `[file]` placeholders. Full media handling is deferred to Phase 2 and 3.
+**Media segments** (Image, Record, Video, File): In Phase 1, render as `<image />` / `<audio />` / `<video />` / `<file />` placeholders. Full media handling is deferred to Phase 2 and 3.
 
 ### Phase 1 Changes
 
@@ -97,8 +97,8 @@ class ParsedMessage:
 3. Launch async task: download → (trim if audio/video) → send to transcription model → return description text
 4. Return `ParsedMessage` with pending tasks
 5. Scheduler awaits all media tasks before invoking agent (timeout: configurable, default 60s)
-6. Replace placeholders with results: `<transcription type="image">description</transcription>`
-7. On failure/timeout: replace with `[image: 处理失败]` or `[image: 处理超时]`
+6. Replace placeholders with results: `<image filename="pic.jpg">description</image>`
+7. On failure/timeout: replace with `<image error="处理失败" />` or `<image error="处理超时" />`
 
 ### Audio/Video Trimming
 
@@ -147,7 +147,7 @@ When `passthrough=true` and `transcribe=false` for a media type:
 HumanMessage("<sender>UserA</sender>hello <face name=\"微笑\" />")
 
 # Transcription mode
-HumanMessage("<sender>UserA</sender><transcription type=\"image\">an orange cat on a sofa</transcription> look at my cat")
+HumanMessage("<sender>UserA</sender><image filename=\"cat.jpg\">an orange cat on a sofa</image> look at my cat")
 
 # Passthrough mode (content_blocks list)
 HumanMessage(content=[
@@ -210,11 +210,11 @@ TRANSCRIPTION_BASE_URL=       # Transcription model endpoint (falls back to OPEN
 
 ## Error Handling
 
-- **Media download failure**: Replace with `[image: 下载失败]` etc., log error. Does not affect other segments in the same message.
-- **Transcription model failure**: Replace with `[image: 转述失败]`, log error. Bad config logs warning at startup.
+- **Media download failure**: Replace with `<image error="下载失败" />` etc., log error. Does not affect other segments in the same message.
+- **Transcription model failure**: Replace with `<image error="转述失败" />`, log error. Bad config logs warning at startup.
 - **ffmpeg unavailable**: Detected and cached at startup. If `trim_over_limit=true` and file exceeds limit, log error and skip file. If file is within limit, process normally.
 - **Reply API failure**: Render as `<reply_to>无法获取原消息</reply_to>`.
-- **Media task timeout**: Cancel task, replace with `[media_type: 处理超时]`, clean up temp files.
+- **Media task timeout**: Cancel task, replace with `<media_type error="处理超时" />`, clean up temp files.
 
 ## Testing Strategy
 
