@@ -7,7 +7,7 @@ from ncatbot.core.event.message_segment import (
     Text, At, AtAll, Face, Reply, Image, Record, Video, File,
 )
 
-from src.core import contact_cache
+from src.core import contact_cache, media_processor
 from src.data.face_map import FACE_MAP
 
 logger = logging.getLogger(__name__)
@@ -36,11 +36,11 @@ class ParsedMessage:
         return out
 
 
-_MEDIA_PLACEHOLDERS = {
-    Image: "<image />",
-    Record: "<audio />",
-    Video: "<video />",
-    File: "<file />",
+_MEDIA_TYPE_MAP = {
+    Image: "image",
+    Record: "audio",
+    Video: "video",
+    File: "document",
 }
 
 
@@ -75,8 +75,9 @@ async def _parse_reply(seg, settings: dict) -> str:
         return "<reply_to>无法获取原消息</reply_to>"
 
 
-async def parse_message(message_array, settings: dict) -> str:
+async def parse_message(message_array, settings: dict) -> ParsedMessage:
     parts: list[str] = []
+    media_tasks: list[MediaTask] = []
     for seg in message_array:
         if isinstance(seg, Text):
             parts.append(seg.text)
@@ -87,16 +88,26 @@ async def parse_message(message_array, settings: dict) -> str:
         elif isinstance(seg, Reply):
             parts.append(await _parse_reply(seg, settings))
         else:
-            placeholder = next(
-                (ph for cls, ph in _MEDIA_PLACEHOLDERS.items() if isinstance(seg, cls)),
+            media_type = next(
+                (mt for cls, mt in _MEDIA_TYPE_MAP.items() if isinstance(seg, cls)),
                 None,
             )
-            if placeholder:
-                parts.append(placeholder)
+            if media_type:
+                type_cfg = settings.get("media", {}).get(media_type, {})
+                if type_cfg.get("transcribe", False):
+                    pid = uuid.uuid4().hex[:12]
+                    parts.append(f"{{{{{MEDIA_PREFIX}{pid}}}}}")
+                    task = asyncio.create_task(
+                        media_processor.process_media_segment(seg, media_type, settings)
+                    )
+                    media_tasks.append(MediaTask(placeholder_id=pid, task=task, media_type=media_type))
+                else:
+                    tag = media_processor._MEDIA_TAG.get(media_type, media_type)
+                    parts.append(f"<{tag} />")
             else:
                 try:
                     summary = seg.get_summary()
                 except Exception:
                     summary = None
                 parts.append(summary or f'<unsupported type="{seg.type}" />')
-    return "".join(parts)
+    return ParsedMessage(text="".join(parts), media_tasks=media_tasks)
