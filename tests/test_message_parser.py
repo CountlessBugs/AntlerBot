@@ -128,25 +128,25 @@ async def test_reply_api_failure():
 @pytest.mark.anyio
 async def test_image_placeholder():
     msg = [_make_seg("Image", file="pic.jpg")]
-    assert await parse_message(msg, DEFAULT_SETTINGS) == "[image]"
+    assert await parse_message(msg, DEFAULT_SETTINGS) == "<image />"
 
 
 @pytest.mark.anyio
 async def test_record_placeholder():
     msg = [_make_seg("Record", file="voice.amr")]
-    assert await parse_message(msg, DEFAULT_SETTINGS) == "[audio]"
+    assert await parse_message(msg, DEFAULT_SETTINGS) == "<audio />"
 
 
 @pytest.mark.anyio
 async def test_video_placeholder():
     msg = [_make_seg("Video", file="clip.mp4")]
-    assert await parse_message(msg, DEFAULT_SETTINGS) == "[video]"
+    assert await parse_message(msg, DEFAULT_SETTINGS) == "<video />"
 
 
 @pytest.mark.anyio
 async def test_file_placeholder():
     msg = [_make_seg("File", file="doc.pdf")]
-    assert await parse_message(msg, DEFAULT_SETTINGS) == "[file]"
+    assert await parse_message(msg, DEFAULT_SETTINGS) == "<file />"
 
 
 # --- Unsupported segments ---
@@ -168,7 +168,7 @@ async def test_unsupported_get_summary_fails():
     seg.get_summary.side_effect = Exception("no summary")
     seg.type = "location"
     msg = [seg]
-    assert await parse_message(msg, DEFAULT_SETTINGS) == "[unsupported: location]"
+    assert await parse_message(msg, DEFAULT_SETTINGS) == '<unsupported type="location" />'
 
 
 # --- Mixed message ---
@@ -184,4 +184,4 @@ async def test_mixed_message():
         _make_seg("Image", file="pic.jpg"),
     ]
     result = await parse_message(msg, DEFAULT_SETTINGS)
-    assert result == '你好 @老王 <face name="微笑" />[image]'
+    assert result == '你好 @老王 <face name="微笑" /><image />'

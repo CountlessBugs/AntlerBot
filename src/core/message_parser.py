@@ -10,10 +10,10 @@ from src.data.face_map import FACE_MAP
 logger = logging.getLogger(__name__)
 
 _MEDIA_PLACEHOLDERS = {
-    Image: "[image]",
-    Record: "[audio]",
-    Video: "[video]",
-    File: "[file]",
+    Image: "<image />",
+    Record: "<audio />",
+    Video: "<video />",
+    File: "<file />",
 }
 
 
@@ -71,5 +71,5 @@ async def parse_message(message_array, settings: dict) -> str:
                     summary = seg.get_summary()
                 except Exception:
                     summary = None
-                parts.append(summary or f"[unsupported: {seg.type}]")
+                parts.append(summary or f'<unsupported type="{seg.type}" />')
     return "".join(parts)
