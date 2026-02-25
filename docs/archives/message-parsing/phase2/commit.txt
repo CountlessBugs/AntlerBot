@@ -1,0 +1,6 @@
+0aa97edc10ca2de4d871e8f9786df102fbd0c742 feat(parser): add ParsedMessage and MediaTask dataclasses
+8d18435808c989ebd0efb79cb1395fd891415026 feat(config): add media transcription settings and env vars
+b2fd4bbe718e640f912768b362c5c021952a9976 feat(media): add ffmpeg check and media download
+d90b027d671f43331d462f4d70c54c18991e9d74 feat(media): add ffmpeg-based media trimming
+898d8e6e71c93df62a9c57abdedaf8c0b720b6a8 feat(media): add LLM-based media transcription
+9227b9202a91446f594cadf4b45ece67504df1ed feat(media): add process_media_segment orchestrator
