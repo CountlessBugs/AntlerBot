@@ -1,6 +1,6 @@
 ## Summary
 
-Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and media transcription settings to the configuration system (Tasks 1-2). Built the complete `media_processor.py` module with ffmpeg check, media download, duration-based trimming, LLM multimodal transcription, and a full orchestrator pipeline (Tasks 3-6). Updated `parse_message()` to return `ParsedMessage` with async media tasks (Task 7). Added `_resolve_media` to scheduler and wired the full handler → parser → scheduler → agent pipeline (Tasks 8-10). 151 tests, 0 warnings.
+Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and media transcription settings to the configuration system (Tasks 1-2). Built the complete `media_processor.py` module with ffmpeg check, media download, duration-based trimming, LLM multimodal transcription, and a full orchestrator pipeline (Tasks 3-6). Updated `parse_message()` to return `ParsedMessage` with async media tasks (Task 7). Added `_resolve_media` to scheduler and wired the full handler → parser → scheduler → agent pipeline (Tasks 8-10). 153 tests, 0 warnings.
 
 ## Tasks Completed
 
@@ -69,6 +69,15 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Updated `message_handler.py`: both `on_group` and `on_private` now pass `parsed.text` to `format_message` and the full `ParsedMessage` to `enqueue`
 - Updated 6 existing scheduler tests for the new tuple shape
 
+**Post-implementation fix:** Refactored to non-blocking media resolution:
+- `enqueue()` now routes media messages to `_resolve_then_enqueue()` (background `asyncio.Task`) instead of passing `ParsedMessage` into the queue
+- `_resolve_then_enqueue()` awaits media tasks in the background, then calls `_enqueue_ready()` with the resolved plain text
+- `_process_loop()` no longer calls `_resolve_media()` — all messages in the queue are already resolved
+- `_batch()` simplified to 3-tuples `(source_key, msgs, reply_fns)` since `parsed_msg` is no longer carried
+- `transcribe_media()` changed from sync `llm.invoke()` to `await llm.ainvoke()` — the sync call was blocking the entire event loop, causing `_process_loop` to stall during transcription even though media resolution ran in a separate task
+- 2 new tests: `test_enqueue_with_media_does_not_block_queue`, `test_resolve_then_enqueue_puts_resolved_msg`
+- Updated existing scheduler tests for new tuple shape and removed media timeout mocks from `_process_loop` tests
+
 ### Task 10: Full integration test and final verification
 
 - Added `test_group_message_with_media_transcription` to `tests/test_message_handler.py`
@@ -86,6 +95,7 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Updated `test_load_settings_defaults_when_missing` in `test_agent.py` to reference `_SETTINGS_DEFAULTS` directly
 - Task 5 transcribe tests: fixed mock to provide real bytes for `base64.b64encode`
 - Task 9: used `msg.replace(pm.text, resolved_text, 1)` with count=1 to avoid replacing duplicate substrings
+- Task 9 post-fix: original design had `_resolve_media` inside `_process_loop`, which blocked the queue; refactored to resolve media before enqueue
 
 ## Key Decisions
 
@@ -94,7 +104,8 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 
 ## Lessons Learned
 
-- None notable for these foundational tasks
+- Sync LLM calls (`llm.invoke()`) inside async functions block the entire event loop — always use `await llm.ainvoke()` in async contexts
+- Moving work to a separate `asyncio.Task` is not sufficient if the task itself contains sync blocking calls
 
 ## Follow-ups
 

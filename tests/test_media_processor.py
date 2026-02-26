@@ -85,7 +85,7 @@ async def test_trim_media_zero_max_duration():
 @pytest.mark.anyio
 async def test_transcribe_image():
     mock_llm = MagicMock()
-    mock_llm.invoke.return_value = MagicMock(content="一只橘猫趴在沙发上")
+    mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="一只橘猫趴在沙发上"))
     mock_file = MagicMock()
     mock_file.__enter__ = MagicMock(return_value=mock_file)
     mock_file.__exit__ = MagicMock(return_value=False)
@@ -99,7 +99,7 @@ async def test_transcribe_image():
 @pytest.mark.anyio
 async def test_transcribe_audio():
     mock_llm = MagicMock()
-    mock_llm.invoke.return_value = MagicMock(content="用户说了你好")
+    mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="用户说了你好"))
     mock_file = MagicMock()
     mock_file.__enter__ = MagicMock(return_value=mock_file)
     mock_file.__exit__ = MagicMock(return_value=False)

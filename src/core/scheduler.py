@@ -28,17 +28,16 @@ def get_current_source() -> dict | None:
     return {"type": type_, "id": id_}
 
 
-def _batch(items: list) -> list[tuple[str, list[str], list, list]]:
-    groups: dict[str, tuple[list, list, list]] = {}
+def _batch(items: list) -> list[tuple[str, list[str], list]]:
+    groups: dict[str, tuple[list, list]] = {}
     order: list[str] = []
-    for _, _, source_key, msg, reply_fn, parsed_msg in items:
+    for _, _, source_key, msg, reply_fn, _parsed_msg in items:
         if source_key not in groups:
-            groups[source_key] = ([], [], [])
+            groups[source_key] = ([], [])
             order.append(source_key)
         groups[source_key][0].append(msg)
         groups[source_key][1].append(reply_fn)
-        groups[source_key][2].append(parsed_msg)
-    return [(k, groups[k][0], groups[k][1], groups[k][2]) for k in order]
+    return [(k, groups[k][0], groups[k][1]) for k in order]
 
 
 def init_timeout(apscheduler) -> None:
@@ -52,10 +51,36 @@ async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
 
 async def enqueue(priority: int, source_key: str, msg: str, reply_fn,
                   parsed_message: ParsedMessage | None = None) -> None:
+    if parsed_message and parsed_message.media_tasks:
+        asyncio.create_task(
+            _resolve_then_enqueue(priority, source_key, msg, reply_fn, parsed_message)
+        )
+        return
+    await _enqueue_ready(priority, source_key, msg, reply_fn)
+
+
+async def _resolve_then_enqueue(
+    priority: int, source_key: str, msg: str, reply_fn,
+    parsed_message: ParsedMessage,
+) -> None:
+    """Await media tasks in the background, then enqueue the resolved message."""
+    settings = agent.load_settings()
+    timeout = settings.get("media", {}).get("timeout", 60)
+    try:
+        resolved_text = await _resolve_media(parsed_message, timeout)
+        resolved_msg = msg.replace(parsed_message.text, resolved_text, 1)
+    except Exception:
+        logger.exception("Failed to resolve media for source=%s", source_key)
+        resolved_msg = msg
+    await _enqueue_ready(priority, source_key, resolved_msg, reply_fn)
+
+
+async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn) -> None:
+    """Enqueue a message that is ready to be processed (no pending media)."""
     global _processing, _counter
     async with _lock:
         _counter += 1
-        await _queue.put((priority, _counter, source_key, msg, reply_fn, parsed_message))
+        await _queue.put((priority, _counter, source_key, msg, reply_fn, None))
         should_start = not _processing
         if should_start:
             _processing = True
@@ -78,20 +103,10 @@ async def _process_loop():
                 while not _queue.empty():
                     items.append(_queue.get_nowait())
             batches = _batch(items)
-            for source_key, msgs, reply_fns, parsed_msgs in batches:
+            for source_key, msgs, reply_fns in batches:
                 _current_source = source_key
-                # Resolve media tasks for all messages in batch
-                settings = agent.load_settings()
-                timeout = settings.get("media", {}).get("timeout", 60)
-                resolved_msgs = []
-                for msg, pm in zip(msgs, parsed_msgs):
-                    if pm and pm.media_tasks:
-                        resolved_text = await _resolve_media(pm, timeout)
-                        resolved_msgs.append(msg.replace(pm.text, resolved_text, 1))
-                    else:
-                        resolved_msgs.append(msg)
-                logger.info("processing | source=%s batch=%d", source_key, len(resolved_msgs))
-                async for seg in agent._invoke("user_message", "\n".join(resolved_msgs)):
+                logger.info("processing | source=%s batch=%d", source_key, len(msgs))
+                async for seg in agent._invoke("user_message", "\n".join(msgs)):
                     await reply_fns[-1](seg)
             if _apscheduler is not None and agent.has_history():
                 settings = agent.load_settings()

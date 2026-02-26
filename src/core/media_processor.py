@@ -144,7 +144,7 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
         ])
-        response = llm.invoke([msg])
+        response = await llm.ainvoke([msg])
         return response.content
     except Exception:
         logger.warning("Transcription failed for %s (%s)", path, media_type, exc_info=True)

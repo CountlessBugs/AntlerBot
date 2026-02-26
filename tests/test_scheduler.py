@@ -27,6 +27,7 @@ def test_batch_groups_by_source():
         (1, 3, "src_a", "msg3", fn, None),
     ]
     batches = scheduler._batch(items)
+    assert len(batches[0]) == 3  # (source_key, msgs, reply_fns)
     src_a = next(b for b in batches if b[0] == "src_a")
     assert src_a[1] == ["msg1", "msg3"]
 
@@ -74,8 +75,7 @@ async def test_process_loop_calls_invoke_and_reply():
     scheduler._processing = True
     async def fake_invoke(*a, **kw):
         yield "response"
-    with patch.object(scheduler.agent, "_invoke", fake_invoke), \
-         patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}):
+    with patch.object(scheduler.agent, "_invoke", fake_invoke):
         await scheduler._process_loop()
     assert replies == ["response"]
     assert scheduler._processing is False
@@ -150,7 +150,6 @@ async def test_process_loop_logs_processing(caplog):
     async def fake_invoke(*a, **kw):
         yield "response"
     with patch.object(scheduler.agent, "_invoke", fake_invoke), \
-         patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}), \
          caplog.at_level(logging.INFO, logger="src.core.scheduler"):
         await scheduler._process_loop()
     assert any("processing" in r.message and "src_a" in r.message for r in caplog.records)
