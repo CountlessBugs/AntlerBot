@@ -77,7 +77,7 @@ async def _parse_reply(seg, settings: dict) -> str:
         return "<reply_to>无法获取原消息</reply_to>"
 
 
-async def parse_message(message_array, settings: dict) -> ParsedMessage:
+async def parse_message(message_array, settings: dict, source: str = "") -> ParsedMessage:
     parts: list[str] = []
     media_tasks: list[MediaTask] = []
     for seg in message_array:
@@ -104,7 +104,7 @@ async def parse_message(message_array, settings: dict) -> ParsedMessage:
                     placeholder = f'<{tag} status="downloading"{fn_attr} />'
                     parts.append(placeholder)
                     task = asyncio.create_task(
-                        media_processor.process_media_segment(seg, media_type, settings)
+                        media_processor.process_media_segment(seg, media_type, settings, source)
                     )
                     media_tasks.append(MediaTask(
                         placeholder_id=pid, task=task, media_type=media_type,

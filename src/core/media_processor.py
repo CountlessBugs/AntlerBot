@@ -22,15 +22,59 @@ def check_ffmpeg() -> bool:
     return _ffmpeg_available
 
 
-async def download_media(seg) -> str | None:
-    """Download a media segment to a temp file. Returns the file path or None on failure."""
-    try:
-        tmp_dir = tempfile.mkdtemp(prefix="antlerbot_media_")
-        path = await seg.download(tmp_dir)
-        return path
-    except Exception:
-        logger.warning("Failed to download media: %s", getattr(seg, "file_name", "unknown"), exc_info=True)
+async def _get_file_url(seg, source: str) -> str | None:
+    """Resolve file download URL via NapCat API based on message source."""
+    file_id = getattr(seg, "file_id", None)
+    if not file_id:
         return None
+    from ncatbot.utils import status
+    api = status.global_api
+    if source.startswith("group_"):
+        group_id = source.removeprefix("group_")
+        return await api.get_group_file_url(group_id, file_id)
+    return await api.get_private_file_url(file_id)
+
+
+def _seg_can_download(seg) -> bool:
+    """Check if seg.download() can succeed without triggering NcatBotError logging."""
+    url = getattr(seg, "url", None)
+    if url is not None:
+        return True
+    file_val = getattr(seg, "file", None) or ""
+    return os.path.exists(file_val) or file_val.startswith(("base64://", "data:", "http"))
+
+
+async def _download_via_url(url: str, name: str, tmp_dir: str) -> str:
+    """Download a file from URL to tmp_dir."""
+    import httpx
+    path = os.path.join(tmp_dir, name)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, timeout=60)
+        resp.raise_for_status()
+        with open(path, "wb") as f:
+            f.write(resp.content)
+    return path
+
+
+async def download_media(seg, source: str = "") -> str | None:
+    """Download a media segment to a temp file. Returns the file path or None on failure."""
+    tmp_dir = tempfile.mkdtemp(prefix="antlerbot_media_")
+    # Try seg.download() only if it won't trigger NcatBotError (which logs ERROR internally)
+    if _seg_can_download(seg):
+        try:
+            return await seg.download(tmp_dir)
+        except Exception:
+            logger.debug("seg.download failed, trying API fallback", exc_info=True)
+    # Fallback: resolve URL via NapCat API
+    try:
+        url = await _get_file_url(seg, source)
+        if url:
+            name = getattr(seg, "file_name", None) or getattr(seg, "file", None) or "file"
+            return await _download_via_url(url, name, tmp_dir)
+    except Exception:
+        logger.debug("API fallback also failed", exc_info=True)
+    logger.warning("Failed to download media: %s", getattr(seg, "file_name", "unknown"))
+    return None
 
 
 async def _get_duration(path: str) -> float:
@@ -127,7 +171,21 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
     try:
         llm = _get_transcription_llm(settings)
         prompt = _TRANSCRIPTION_PROMPTS.get(media_type, "请描述这个文件的内容。")
+        from langchain_core.messages import HumanMessage
 
+        # Documents: read as text and send inline
+        if media_type == "document":
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except UnicodeDecodeError:
+                with open(path, "r", encoding="gbk", errors="replace") as f:
+                    text = f.read()
+            msg = HumanMessage(content=f"{prompt}\n\n{text}")
+            response = await llm.ainvoke([msg])
+            return response.content
+
+        # Images/audio/video: send as base64 multimodal
         with open(path, "rb") as f:
             data = base64.b64encode(f.read()).decode("utf-8")
 
@@ -135,11 +193,9 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
             "image": "image/png",
             "audio": "audio/mpeg",
             "video": "video/mp4",
-            "document": "application/pdf",
         }
         mime = mime_map.get(media_type, "application/octet-stream")
 
-        from langchain_core.messages import HumanMessage
         msg = HumanMessage(content=[
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
@@ -171,7 +227,7 @@ def _cleanup_temp(path: str) -> None:
         logger.debug("Cleanup failed for %s", path, exc_info=True)
 
 
-async def process_media_segment(seg, media_type: str, settings: dict) -> str:
+async def process_media_segment(seg, media_type: str, settings: dict, source: str = "") -> str:
     """Full pipeline: download → trim → transcribe → format result."""
     tag = _MEDIA_TAG.get(media_type, media_type)
     type_cfg = settings.get("media", {}).get(media_type, {})
@@ -181,7 +237,7 @@ async def process_media_segment(seg, media_type: str, settings: dict) -> str:
         return f"<{tag} />"
 
     # Download
-    path = await download_media(seg)
+    path = await download_media(seg, source)
     if not path:
         return f'<{tag} error="下载失败" />'
 

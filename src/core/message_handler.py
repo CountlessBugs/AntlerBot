@@ -37,11 +37,12 @@ def register(bot) -> None:
         group_name = contact_cache.get_group_display_name(str(e.group_id))
         sender_name = await get_sender_name(str(e.sender.user_id), e.sender.nickname, e.sender.card or "")
         settings = load_settings()
-        parsed = await message_parser.parse_message(e.message, settings)
+        source_key = f"group_{e.group_id}"
+        parsed = await message_parser.parse_message(e.message, settings, source_key)
         msg = format_message(parsed.text, sender_name, group_name)
         await scheduler.enqueue(
             scheduler.PRIORITY_USER_MESSAGE,
-            f"group_{e.group_id}",
+            source_key,
             msg,
             lambda text: bot.api.post_group_msg(e.group_id, text=text),
             parsed_message=parsed,
@@ -54,11 +55,12 @@ def register(bot) -> None:
                 return
         sender_name = await get_sender_name(str(e.sender.user_id), e.sender.nickname)
         settings = load_settings()
-        parsed = await message_parser.parse_message(e.message, settings)
+        source_key = f"private_{e.user_id}"
+        parsed = await message_parser.parse_message(e.message, settings, source_key)
         msg = format_message(parsed.text, sender_name)
         await scheduler.enqueue(
             scheduler.PRIORITY_USER_MESSAGE,
-            f"private_{e.user_id}",
+            source_key,
             msg,
             lambda text: bot.api.post_private_msg(e.user_id, text=text),
             parsed_message=parsed,

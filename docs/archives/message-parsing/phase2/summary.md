@@ -23,6 +23,12 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Created `src/core/media_processor.py` with `check_ffmpeg()` (cached `shutil.which` lookup) and `download_media()` (downloads via segment's `.download()` to a `tempfile.mkdtemp` dir)
 - 4 unit tests: ffmpeg available, unavailable, caching, and download
 
+**Post-release fix:** NcatBot's `File` segment often has `url=None` and `file` set to just a filename (e.g. `context.txt`), causing `seg.download()` → `get_base64()` → `NcatBotError`. The exception logs ERROR inside its own constructor before we can catch it.
+- Added `_seg_can_download()` to pre-check whether `seg.download()` will succeed; skips it when it would fail, avoiding the `NcatBotError` ERROR log
+- Added `_get_file_url(seg, source)` — resolves download URL via NapCat API: `get_group_file_url()` for group files, `get_private_file_url()` for private files
+- Added `_download_via_url()` helper for httpx download
+- `download_media()` now accepts `source` param, tries `seg.download()` only when safe, falls back to API URL resolution
+
 ### Task 4: ffmpeg-based media trimming
 
 - Added `trim_media()`, `_get_duration()` (ffprobe JSON parsing), and `_run_ffmpeg_trim()` (ffmpeg `-t` with `-c copy`)
@@ -36,12 +42,16 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Reads file as base64, sends multimodal message to LLM with per-type Chinese prompts
 - 3 unit tests: image transcribe, audio transcribe, failure handling
 
+**Post-release fix:** Document type (e.g. `.txt`) was sent as base64 `image_url` with mime `application/pdf`, which LLMs cannot process. Now reads file as text (UTF-8, fallback GBK) and sends inline to LLM.
+
 ### Task 6: process_media_segment orchestrator
 
 - Added `process_media_segment()` that chains download → trim (audio/video) → transcribe → XML-formatted result
 - Added `_MEDIA_TAG` mapping and `_cleanup_temp()` for temp file cleanup
 - Error tags for each failure mode: `下载失败`, `裁剪失败`, `转述失败`
 - 5 unit tests: image transcribe, disabled, audio with trim, download failure, transcription failure
+
+**Post-release fix:** `process_media_segment()` now accepts and passes `source` param to `download_media()`.
 
 ### Task 7: Update parse_message() to return ParsedMessage with media tasks
 
@@ -52,6 +62,8 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Added `media_processor` import to `message_parser.py`
 - Updated all 18 existing tests from `assert await parse_message(...) == "string"` to `assert result.text == "string"`
 - 3 new tests: `test_parse_returns_parsed_message`, `test_parse_image_transcribe_creates_task`, `test_parse_image_no_transcribe_placeholder`
+
+**Post-release fix:** `parse_message()` now accepts `source` param, passes it through to `process_media_segment()`.
 
 ### Task 8: Add _resolve_media to scheduler
 
@@ -77,6 +89,8 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - `transcribe_media()` changed from sync `llm.invoke()` to `await llm.ainvoke()` — the sync call was blocking the entire event loop, causing `_process_loop` to stall during transcription even though media resolution ran in a separate task
 - 2 new tests: `test_enqueue_with_media_does_not_block_queue`, `test_resolve_then_enqueue_puts_resolved_msg`
 - Updated existing scheduler tests for new tuple shape and removed media timeout mocks from `_process_loop` tests
+
+**Post-release fix:** Both `on_group` and `on_private` now construct `source_key` (`group_{id}` / `private_{id}`) and pass it to `parse_message()` for file URL resolution.
 
 ### Task 10: Full integration test and final verification
 
