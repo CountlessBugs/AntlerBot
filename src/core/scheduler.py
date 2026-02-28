@@ -52,28 +52,29 @@ async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
 
 async def enqueue(priority: int, source_key: str, msg: str, reply_fn,
                   parsed_message: ParsedMessage | None = None) -> None:
-    # Always enqueue immediately — media placeholders are already visible as
-    # <tag status="downloading" id="..." /> in the message text.
-    await _enqueue_ready(priority, source_key, msg, reply_fn, parsed_message)
     if parsed_message and parsed_message.media_tasks:
         asyncio.create_task(
-            _resolve_media_and_enqueue(priority, source_key, reply_fn, parsed_message)
+            _resolve_media_and_enqueue(priority, source_key, msg, reply_fn, parsed_message)
         )
+    else:
+        await _enqueue_ready(priority, source_key, msg, reply_fn, parsed_message)
 
 
 async def _resolve_media_and_enqueue(
     priority: int,
     source_key: str,
+    msg: str,
     reply_fn,
     parsed_message: ParsedMessage,
 ) -> None:
-    """Resolve media in the background, then enqueue resolved content to trigger a reply."""
+    """Resolve media in the background, then enqueue the complete message."""
     settings = agent.load_settings()
     timeout = settings.get("media", {}).get("timeout", 60)
     results = await _resolve_media_tasks(parsed_message, timeout)
     if not results:
+        await _enqueue_ready(priority, source_key, msg, reply_fn)
         return
-    parts: list[str] = []
+    resolved_msg = msg
     content_blocks: list[dict] = []
     for mt in parsed_message.media_tasks:
         if mt.placeholder_id not in results:
@@ -81,12 +82,11 @@ async def _resolve_media_and_enqueue(
         result = results[mt.placeholder_id]
         if mt.passthrough and isinstance(result, dict):
             content_blocks.append(result)
+            resolved_msg = resolved_msg.replace(mt.placeholder_tag, "")
         elif isinstance(result, str):
-            parts.append(result)
-    if parts or content_blocks:
-        follow_up_pm = ParsedMessage(text="", content_blocks=content_blocks) if content_blocks else None
-        await _enqueue_ready(priority, source_key, "\n".join(parts) if parts else "", reply_fn,
-                             parsed_message=follow_up_pm)
+            resolved_msg = resolved_msg.replace(mt.placeholder_tag, result)
+    resolved_pm = ParsedMessage(text="", content_blocks=content_blocks) if content_blocks else None
+    await _enqueue_ready(priority, source_key, resolved_msg, reply_fn, parsed_message=resolved_pm)
 
 
 def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str | list:
