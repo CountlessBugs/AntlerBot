@@ -420,6 +420,29 @@ async def test_parse_image_transcribe_overrides_passthrough():
 
 
 @pytest.mark.anyio
+async def test_large_file_passthrough_creates_media_task():
+    """Large passthrough file uses placeholder + async MediaTask."""
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": False, "passthrough": True},
+        "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=5_000_000)
+    seg.get_file_name = MagicMock(return_value="pic.jpg")
+    msg = [seg]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.passthrough_media_segment = AsyncMock(
+            return_value={"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
+        )
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert len(result.media_tasks) == 1
+    assert result.media_tasks[0].passthrough is True
+    assert result.media_tasks[0].media_type == "image"
+    # Content blocks should be empty — the block will come from async resolution
+    assert result.content_blocks == []
+
+
+@pytest.mark.anyio
 async def test_parse_passthrough_failure_falls_back_to_placeholder():
     settings = {**DEFAULT_SETTINGS, "media": {
         "image": {"transcribe": False, "passthrough": True},

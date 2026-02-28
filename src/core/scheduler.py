@@ -74,11 +74,19 @@ async def _resolve_media_and_enqueue(
     if not results:
         return
     parts: list[str] = []
+    content_blocks: list[dict] = []
     for mt in parsed_message.media_tasks:
-        if mt.placeholder_id in results:
-            parts.append(results[mt.placeholder_id])
-    if parts:
-        await _enqueue_ready(priority, source_key, "\n".join(parts), reply_fn)
+        if mt.placeholder_id not in results:
+            continue
+        result = results[mt.placeholder_id]
+        if mt.passthrough and isinstance(result, dict):
+            content_blocks.append(result)
+        elif isinstance(result, str):
+            parts.append(result)
+    if parts or content_blocks:
+        follow_up_pm = ParsedMessage(text="", content_blocks=content_blocks) if content_blocks else None
+        await _enqueue_ready(priority, source_key, "\n".join(parts) if parts else "", reply_fn,
+                             parsed_message=follow_up_pm)
 
 
 def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str | list:
@@ -172,12 +180,12 @@ async def _on_session_clear() -> None:
     await contact_cache.refresh_all()
 
 
-async def _resolve_media_tasks(pm: ParsedMessage, timeout: float) -> dict[str, str]:
+async def _resolve_media_tasks(pm: ParsedMessage, timeout: float) -> dict[str, str | dict]:
     """Await all media tasks in parallel and return {placeholder_id: result} mapping."""
     if not pm.media_tasks:
         return {}
 
-    async def _resolve_one(mt: MediaTask) -> tuple[str, str]:
+    async def _resolve_one(mt: MediaTask) -> tuple[str, str | dict]:
         tag = _MEDIA_TAG.get(mt.media_type, mt.media_type)
         try:
             result = await asyncio.wait_for(mt.task, timeout=timeout)

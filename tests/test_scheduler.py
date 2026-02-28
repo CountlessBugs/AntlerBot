@@ -27,7 +27,7 @@ def test_batch_groups_by_source():
         (1, 3, "src_a", "msg3", fn, None),
     ]
     batches = scheduler._batch(items)
-    assert len(batches[0]) == 3  # (source_key, msgs, reply_fns)
+    assert len(batches[0]) == 4  # (source_key, msgs, reply_fns, parsed_msgs)
     src_a = next(b for b in batches if b[0] == "src_a")
     assert src_a[1] == ["msg1", "msg3"]
 

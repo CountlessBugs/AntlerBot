@@ -149,3 +149,27 @@ async def test_resolve_media_and_enqueue_puts_resolved_msg():
     item = scheduler._queue.get_nowait()
     msg = item[3]
     assert "<image>a cat</image>" in msg
+
+
+@pytest.mark.anyio
+async def test_resolve_passthrough_media_enqueues_with_content_blocks():
+    """Passthrough media tasks should enqueue with content_blocks on the ParsedMessage."""
+    block = {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
+    task = AsyncMock(return_value=block)()
+    tag = '<image status="loading" filename="pic.jpg" />'
+    pm = ParsedMessage(
+        text=f'look {tag}',
+        media_tasks=[MediaTask(placeholder_id="id1", task=task, media_type="image",
+                               filename="pic.jpg", placeholder_tag=tag, passthrough=True)],
+    )
+
+    with patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}):
+        await scheduler._resolve_media_and_enqueue(1, "src_a", AsyncMock(), pm)
+
+    assert not scheduler._queue.empty()
+    item = scheduler._queue.get_nowait()
+    # item is (priority, counter, source_key, msg, reply_fn, parsed_message)
+    enqueued_pm = item[5]
+    assert enqueued_pm is not None
+    assert len(enqueued_pm.content_blocks) == 1
+    assert enqueued_pm.content_blocks[0]["type"] == "image_url"
