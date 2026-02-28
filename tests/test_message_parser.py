@@ -32,6 +32,9 @@ def _make_seg(cls_name, **attrs):
     seg.__class__ = real_cls
     for k, v in attrs.items():
         setattr(seg, k, v)
+    # Default get_file_name to return "" for media types so MagicMock doesn't leak
+    if hasattr(seg, "get_file_name") and "get_file_name" not in attrs:
+        seg.get_file_name = MagicMock(return_value="")
     return seg
 
 
@@ -102,7 +105,7 @@ async def test_face_invalid_id():
 
 @pytest.mark.anyio
 async def test_reply_success():
-    mock_evt = MagicMock(raw_message="原始消息内容")
+    mock_evt = MagicMock(message=[_make_seg("Text", text="原始消息内容")])
     mock_api = AsyncMock(get_msg=AsyncMock(return_value=mock_evt))
     with patch("ncatbot.utils.status") as mock_status:
         mock_status.global_api = mock_api
@@ -112,9 +115,49 @@ async def test_reply_success():
 
 
 @pytest.mark.anyio
+async def test_reply_with_face():
+    mock_evt = MagicMock(message=[
+        _make_seg("Text", text="你好"),
+        _make_seg("Face", id="14"),
+    ])
+    mock_api = AsyncMock(get_msg=AsyncMock(return_value=mock_evt))
+    with patch("ncatbot.utils.status") as mock_status:
+        mock_status.global_api = mock_api
+        msg = [_make_seg("Reply", id="12345")]
+        result = await parse_message(msg, DEFAULT_SETTINGS)
+        assert result.text == '<reply_to>你好<face name="微笑" /></reply_to>'
+
+
+@pytest.mark.anyio
+async def test_reply_with_image():
+    img_seg = _make_seg("Image", file="cat.png")
+    img_seg.get_file_name = MagicMock(return_value="cat.png")
+    mock_evt = MagicMock(message=[img_seg])
+    mock_api = AsyncMock(get_msg=AsyncMock(return_value=mock_evt))
+    with patch("ncatbot.utils.status") as mock_status:
+        mock_status.global_api = mock_api
+        msg = [_make_seg("Reply", id="12345")]
+        result = await parse_message(msg, DEFAULT_SETTINGS)
+        assert result.text == '<reply_to><image filename="cat.png" /></reply_to>'
+
+
+@pytest.mark.anyio
+async def test_reply_fallback_to_raw_message():
+    """When evt.message is missing, fall back to raw_message."""
+    mock_evt = MagicMock(spec=[])
+    mock_evt.raw_message = "fallback内容"
+    mock_api = AsyncMock(get_msg=AsyncMock(return_value=mock_evt))
+    with patch("ncatbot.utils.status") as mock_status:
+        mock_status.global_api = mock_api
+        msg = [_make_seg("Reply", id="12345")]
+        result = await parse_message(msg, DEFAULT_SETTINGS)
+        assert result.text == "<reply_to>fallback内容</reply_to>"
+
+
+@pytest.mark.anyio
 async def test_reply_truncation():
     long_text = "a" * 100
-    mock_evt = MagicMock(raw_message=long_text)
+    mock_evt = MagicMock(message=[_make_seg("Text", text=long_text)])
     mock_api = AsyncMock(get_msg=AsyncMock(return_value=mock_evt))
     with patch("ncatbot.utils.status") as mock_status:
         mock_status.global_api = mock_api
@@ -251,14 +294,16 @@ async def test_parse_returns_parsed_message():
 @pytest.mark.anyio
 async def test_parse_image_transcribe_creates_task():
     settings = {**DEFAULT_SETTINGS, "media": {"image": {"transcribe": True}, "timeout": 60}}
-    msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg")]
+    seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg")
+    seg.get_file_name = MagicMock(return_value="pic.jpg")
+    msg = [seg]
     with patch("src.core.message_parser.media_processor") as mock_mp:
         mock_mp.process_media_segment = AsyncMock(return_value='<image filename="pic.jpg">a cat</image>')
         mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
         result = await parse_message(msg, settings)
         assert isinstance(result, ParsedMessage)
         assert len(result.media_tasks) == 1
-        assert 'status="downloading"' in result.text
+        assert 'status="loading"' in result.text
 
 
 @pytest.mark.anyio

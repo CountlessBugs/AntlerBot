@@ -79,12 +79,34 @@ def _parse_face(seg) -> str:
     return f'<face name="{name}" />' if name else "<face />"
 
 
+def _parse_reply_segment(seg) -> str:
+    """Parse a single segment from a reply message (lightweight, no async)."""
+    if isinstance(seg, Text):
+        return seg.text
+    if isinstance(seg, Face):
+        return _parse_face(seg)
+    media_type = next(
+        (mt for cls, mt in _MEDIA_TYPE_MAP.items() if isinstance(seg, cls)),
+        None,
+    )
+    if media_type:
+        tag = media_processor._MEDIA_TAG.get(media_type, media_type)
+        filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
+        fn_attr = f' filename="{filename}"' if filename else ""
+        return f"<{tag}{fn_attr} />"
+    return ""
+
+
 async def _parse_reply(seg, settings: dict) -> str:
     max_len = settings.get("reply_max_length", 50)
     try:
         from ncatbot.utils import status
         evt = await status.global_api.get_msg(seg.id)
-        content = evt.raw_message or ""
+        segments = getattr(evt, "message", None)
+        if segments:
+            content = "".join(_parse_reply_segment(s) for s in segments)
+        else:
+            content = evt.raw_message or ""
         if len(content) > max_len:
             content = content[:max_len] + "..."
         return f"<reply_to>{content}</reply_to>"
