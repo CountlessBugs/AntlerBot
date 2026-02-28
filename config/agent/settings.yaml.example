@@ -5,6 +5,10 @@ reply_max_length: 50
 
 media:
   timeout: 60
+  # Files at or below this threshold are processed inline before sending to LLM.
+  # Files above this threshold (or with unknown size) use the two-phase placeholder flow.
+  # Set to 0 to always use placeholder flow.
+  sync_process_threshold_mb: 1
 
   image:
     transcribe: false

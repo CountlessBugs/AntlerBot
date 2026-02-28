@@ -269,3 +269,66 @@ async def test_parse_image_no_transcribe_placeholder():
     assert isinstance(result, ParsedMessage)
     assert result.text == "<image />"
     assert result.media_tasks == []
+
+
+# --- Small file direct wait ---
+
+@pytest.mark.anyio
+async def test_small_file_direct_wait():
+    """Small file (file_size <= max_direct_size) should be awaited inline, no MediaTask."""
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.process_media_segment = AsyncMock(return_value='<image filename="pic.jpg">a cat</image>')
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert result.media_tasks == []
+    assert '<image filename="pic.jpg">a cat</image>' in result.text
+    assert "loading" not in result.text
+
+
+@pytest.mark.anyio
+async def test_large_file_uses_placeholder():
+    """Large file (file_size > max_direct_size) should use placeholder + MediaTask."""
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=5_000_000)]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.process_media_segment = AsyncMock(return_value='<image filename="pic.jpg">a cat</image>')
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert len(result.media_tasks) == 1
+    assert 'status="loading"' in result.text
+
+
+@pytest.mark.anyio
+async def test_unknown_file_size_uses_placeholder():
+    """file_size=None should be treated as large file (placeholder flow)."""
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=None)]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.process_media_segment = AsyncMock(return_value='<image filename="pic.jpg">a cat</image>')
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert len(result.media_tasks) == 1
+    assert 'status="loading"' in result.text
+
+
+@pytest.mark.anyio
+async def test_small_file_processing_failure():
+    """Small file that fails processing should produce an error tag inline."""
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.process_media_segment = AsyncMock(side_effect=Exception("download failed"))
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert result.media_tasks == []
+    assert '<image error="处理失败" />' in result.text

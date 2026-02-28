@@ -118,16 +118,35 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                 tag = media_processor._MEDIA_TAG.get(media_type, media_type)
                 fn_attr = f' filename="{filename}"' if filename else ""
                 if type_cfg.get("transcribe", False):
-                    pid = uuid.uuid4().hex[:12]
-                    placeholder = f'<{tag} status="loading"{fn_attr} />'
-                    parts.append(placeholder)
-                    task = asyncio.create_task(
-                        media_processor.process_media_segment(seg, media_type, settings, source)
+                    raw_size = getattr(seg, "file_size", None)
+                    file_size = int(raw_size) if raw_size is not None else None
+                    max_direct_mb = settings.get("media", {}).get("sync_process_threshold_mb")
+                    max_direct = max_direct_mb * 1024 * 1024 if max_direct_mb is not None else None
+                    is_small = (
+                        max_direct is not None
+                        and file_size is not None
+                        and file_size <= max_direct
                     )
-                    media_tasks.append(MediaTask(
-                        placeholder_id=pid, task=task, media_type=media_type,
-                        filename=filename, placeholder_tag=placeholder,
-                    ))
+                    if is_small:
+                        try:
+                            result = await media_processor.process_media_segment(
+                                seg, media_type, settings, source
+                            )
+                            parts.append(result)
+                        except Exception:
+                            logger.warning("Failed to process small media segment", exc_info=True)
+                            parts.append(f'<{tag} error="处理失败" />')
+                    else:
+                        pid = uuid.uuid4().hex[:12]
+                        placeholder = f'<{tag} status="loading"{fn_attr} />'
+                        parts.append(placeholder)
+                        task = asyncio.create_task(
+                            media_processor.process_media_segment(seg, media_type, settings, source)
+                        )
+                        media_tasks.append(MediaTask(
+                            placeholder_id=pid, task=task, media_type=media_type,
+                            filename=filename, placeholder_tag=placeholder,
+                        ))
                 else:
                     parts.append(f"<{tag}{fn_attr} />")
             else:

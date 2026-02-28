@@ -90,6 +90,20 @@ class ParsedMessage:
     media_tasks: list[MediaTask] # pending media tasks
 ```
 
+### Sync vs Async Processing (Size-Based)
+
+Not all media files need the two-phase placeholder flow. Small files process quickly, so waiting inline avoids a redundant LLM round-trip.
+
+The `sync_process_threshold_mb` setting (under `media:`) controls the cutoff:
+
+- `file_size <= threshold`: `parse_message()` awaits `process_media_segment()` directly and inlines the result into the text. No `MediaTask` is created, no placeholder is emitted.
+- `file_size > threshold` or `file_size is None`: the existing two-phase flow applies (placeholder → background task → follow-up message).
+- `threshold = 0`: always use the two-phase placeholder flow.
+
+File size is read from `DownloadableMessageSegment.file_size` (populated by NcatBot on message receipt). If the sync path raises an exception, an error tag is inlined instead (e.g. `<image error="处理失败" />`).
+
+This logic lives entirely in `message_parser.py`; `scheduler.py` and `media_processor.py` are unchanged.
+
 ### Transcription Flow
 
 1. `parse_message()` encounters a media segment with `transcribe=true`
@@ -178,6 +192,11 @@ media:
   # Transcription model (empty = reuse main LLM)
   transcription_model: ""
   transcription_provider: ""
+
+  # Files at or below this threshold are processed inline (sync).
+  # Files above this threshold use the two-phase placeholder flow.
+  # Set to 0 to always use placeholder flow.
+  sync_process_threshold_mb: 1
 
   # Per-type config
   image:
