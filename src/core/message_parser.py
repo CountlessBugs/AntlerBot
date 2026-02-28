@@ -36,16 +36,6 @@ class ParsedMessage:
     media_tasks: list[MediaTask] = field(default_factory=list)
     content_blocks: list[dict] = field(default_factory=list)
 
-    def resolve(self, results: dict[str, str] | None = None) -> str:
-        """Replace downloading placeholders with resolved media content."""
-        if not results:
-            return self.text
-        out = self.text
-        for mt in self.media_tasks:
-            if mt.placeholder_id in results:
-                out = out.replace(mt.placeholder_tag, results[mt.placeholder_id])
-        return out
-
 
 _MEDIA_TYPE_MAP = {
     Image: "image",
@@ -188,6 +178,7 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                                 seg, media_type, settings, source
                             )
                             if block:
+                                parts.append(f"<{tag}{fn_attr} />")
                                 content_blocks.append(block)
                             else:
                                 parts.append(f"<{tag}{fn_attr} />")

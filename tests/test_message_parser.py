@@ -259,26 +259,6 @@ def test_parsed_message_with_placeholder():
     assert 'status="downloading"' in pm.text
 
 
-def test_parsed_message_resolve_no_tasks():
-    pm = ParsedMessage(text="hello world", media_tasks=[])
-    assert pm.resolve() == "hello world"
-
-
-def test_parsed_message_resolve_replaces_placeholders():
-    tag = '<image status="downloading" filename="cat.jpg" />'
-    mt = MediaTask(placeholder_id="id1", task=AsyncMock()(), media_type="image",
-                   filename="cat.jpg", placeholder_tag=tag)
-    pm = ParsedMessage(text=f'look {tag} nice', media_tasks=[mt])
-    assert pm.resolve({"id1": '<image filename="cat.jpg">a cat</image>'}) == 'look <image filename="cat.jpg">a cat</image> nice'
-
-
-def test_parsed_message_resolve_failed_placeholder():
-    tag = '<image status="downloading" filename="cat.jpg" />'
-    mt = MediaTask(placeholder_id="id1", task=AsyncMock()(), media_type="image",
-                   filename="cat.jpg", placeholder_tag=tag)
-    pm = ParsedMessage(text=f'see {tag} here', media_tasks=[mt])
-    assert pm.resolve({"id1": '<image error="处理失败" />'}) == 'see <image error="处理失败" /> here'
-
 
 # --- parse_message returns ParsedMessage ---
 
@@ -396,7 +376,7 @@ async def test_parse_image_passthrough_creates_content_block():
         )
         mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
         result = await parse_message(msg, settings)
-    assert result.text == "look at this "
+    assert result.text == 'look at this <image filename="pic.jpg" />'
     assert len(result.content_blocks) == 1
     assert result.content_blocks[0]["type"] == "image_url"
 

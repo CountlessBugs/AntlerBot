@@ -112,20 +112,15 @@ async def test_enqueue_with_media_does_not_block_queue():
     with patch.object(scheduler.agent, "_invoke", fake_invoke), \
          patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}), \
          patch.object(scheduler.agent, "has_history", return_value=False):
-        # Enqueue media message — should NOT produce an immediate reply
+        # Enqueue media message — should produce an immediate reply with loading placeholder
         await scheduler.enqueue(1, "src_a", f'<sender>A</sender>look {tag}', reply_fn, parsed_message=pm)
-        await asyncio.sleep(0.05)
-        assert replies == [], "media message should not trigger immediate reply"
-
-        # Enqueue a plain text message — should get replied to while media is still resolving
-        await scheduler.enqueue(1, "src_a", "<sender>A</sender>hello", reply_fn)
         for _ in range(100):
             if replies:
                 break
             await asyncio.sleep(0.01)
-        assert replies == ["response"], "text message should be replied to while media resolves"
+        assert replies == ["response"], "media message should trigger immediate reply with loading placeholder"
 
-        # Release media and wait for the resolved message reply
+        # Release media and wait for the follow-up resolved message reply
         media_gate.set()
         for _ in range(100):
             if len(replies) >= 2:
@@ -135,8 +130,8 @@ async def test_enqueue_with_media_does_not_block_queue():
 
 
 @pytest.mark.anyio
-async def test_resolve_media_and_enqueue_puts_resolved_msg():
-    """_resolve_media_and_enqueue should resolve media and replace placeholders in the full message."""
+async def test_resolve_media_and_enqueue_puts_placeholder_then_result():
+    """_resolve_media_and_enqueue should enqueue placeholder immediately, then resolved result as follow-up."""
     task = AsyncMock(return_value='<image filename="cat.jpg">a cat</image>')()
     tag = '<image status="loading" filename="cat.jpg" />'
     pm = ParsedMessage(
@@ -146,20 +141,24 @@ async def test_resolve_media_and_enqueue_puts_resolved_msg():
     )
     formatted_msg = f'<sender>Alice</sender>see {tag}'
 
+    # Prevent _process_loop from consuming the queue
+    scheduler._processing = True
     with patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}):
         await scheduler._resolve_media_and_enqueue(1, "src_a", formatted_msg, AsyncMock(), pm)
 
-    assert not scheduler._queue.empty()
-    item = scheduler._queue.get_nowait()
-    msg = item[3]
-    assert '<image filename="cat.jpg">a cat</image>' in msg
-    assert "status=" not in msg  # placeholder replaced
-    assert "<sender>Alice</sender>" in msg  # sender info preserved
+    # First item: original message with loading placeholder intact
+    item1 = scheduler._queue.get_nowait()
+    assert 'status="loading"' in item1[3]
+    assert "<sender>Alice</sender>" in item1[3]
+
+    # Second item: resolved transcription result
+    item2 = scheduler._queue.get_nowait()
+    assert '<image filename="cat.jpg">a cat</image>' in item2[3]
 
 
 @pytest.mark.anyio
-async def test_resolve_passthrough_media_enqueues_with_content_blocks():
-    """Passthrough media tasks should enqueue with content_blocks and placeholder removed from text."""
+async def test_resolve_passthrough_media_enqueues_placeholder_then_content_block():
+    """Passthrough media should enqueue placeholder immediately, then follow-up with content_blocks."""
     block = {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
     task = AsyncMock(return_value=block)()
     tag = '<image status="loading" filename="pic.jpg" />'
@@ -170,15 +169,20 @@ async def test_resolve_passthrough_media_enqueues_with_content_blocks():
     )
     formatted_msg = f'<sender>Alice</sender>look {tag}'
 
+    # Prevent _process_loop from consuming the queue
+    scheduler._processing = True
     with patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}):
         await scheduler._resolve_media_and_enqueue(1, "src_a", formatted_msg, AsyncMock(), pm)
 
-    assert not scheduler._queue.empty()
-    item = scheduler._queue.get_nowait()
-    msg = item[3]
-    assert "status=" not in msg  # placeholder removed
-    assert "<sender>Alice</sender>" in msg
-    enqueued_pm = item[5]
+    # First item: original message with loading placeholder intact
+    item1 = scheduler._queue.get_nowait()
+    assert 'status="loading"' in item1[3]
+    assert "<sender>Alice</sender>" in item1[3]
+
+    # Second item: follow-up with filename tag and content block
+    item2 = scheduler._queue.get_nowait()
+    assert '<image filename="pic.jpg" />' in item2[3]
+    enqueued_pm = item2[5]
     assert enqueued_pm is not None
     assert len(enqueued_pm.content_blocks) == 1
     assert enqueued_pm.content_blocks[0]["type"] == "image_url"

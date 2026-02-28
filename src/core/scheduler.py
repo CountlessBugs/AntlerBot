@@ -67,26 +67,30 @@ async def _resolve_media_and_enqueue(
     reply_fn,
     parsed_message: ParsedMessage,
 ) -> None:
-    """Resolve media in the background, then enqueue the complete message."""
+    """Enqueue the message with loading placeholders immediately, then enqueue resolved media as follow-up messages."""
+    # 1. Enqueue immediately with loading placeholders intact (no media_tasks/content_blocks)
+    await _enqueue_ready(priority, source_key, msg, reply_fn)
+
+    # 2. Resolve media in the background
     settings = agent.load_settings()
     timeout = settings.get("media", {}).get("timeout", 60)
     results = await _resolve_media_tasks(parsed_message, timeout)
     if not results:
-        await _enqueue_ready(priority, source_key, msg, reply_fn)
         return
-    resolved_msg = msg
-    content_blocks: list[dict] = []
+
+    # 3. Enqueue each resolved result as a new follow-up message
     for mt in parsed_message.media_tasks:
         if mt.placeholder_id not in results:
             continue
         result = results[mt.placeholder_id]
         if mt.passthrough and isinstance(result, dict):
-            content_blocks.append(result)
-            resolved_msg = resolved_msg.replace(mt.placeholder_tag, "")
+            tag = _MEDIA_TAG.get(mt.media_type, mt.media_type)
+            fn_attr = f' filename="{mt.filename}"' if mt.filename else ""
+            follow_up_msg = f"<{tag}{fn_attr} />"
+            follow_up_pm = ParsedMessage(text="", content_blocks=[result])
+            await _enqueue_ready(priority, source_key, follow_up_msg, reply_fn, parsed_message=follow_up_pm)
         elif isinstance(result, str):
-            resolved_msg = resolved_msg.replace(mt.placeholder_tag, result)
-    resolved_pm = ParsedMessage(text="", content_blocks=content_blocks) if content_blocks else None
-    await _enqueue_ready(priority, source_key, resolved_msg, reply_fn, parsed_message=resolved_pm)
+            await _enqueue_ready(priority, source_key, result, reply_fn)
 
 
 def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str | list:
