@@ -228,6 +228,47 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
         return None
 
 
+_MIME_MAP = {
+    "image": "image/png",
+    "audio": "audio/mpeg",
+    "video": "video/mp4",
+}
+
+
+async def passthrough_media_segment(seg, media_type: str, settings: dict, source: str = "") -> dict | None:
+    """Download media, base64-encode, return a content_block dict for LLM input.
+    Returns None on failure or if disabled."""
+    type_cfg = settings.get("media", {}).get(media_type, {})
+    if not type_cfg.get("passthrough", False):
+        return None
+
+    path = await download_media(seg, source)
+    if not path:
+        return None
+
+    try:
+        if media_type in ("audio", "video"):
+            max_dur = type_cfg.get("max_duration", 0)
+            if max_dur > 0:
+                trimmed = await trim_media(path, max_dur)
+                if trimmed is None:
+                    return None
+                if trimmed != path:
+                    _cleanup_temp(path)
+                    path = trimmed
+
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("utf-8")
+
+        mime = _MIME_MAP.get(media_type, "application/octet-stream")
+        return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}
+    except Exception:
+        logger.warning("Passthrough failed for %s (%s)", path, media_type, exc_info=True)
+        return None
+    finally:
+        _cleanup_temp(path)
+
+
 _MEDIA_TAG = {
     "image": "image",
     "audio": "audio",

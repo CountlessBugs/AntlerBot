@@ -3,7 +3,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 
 from src.core.media_processor import (
     check_ffmpeg, download_media, trim_media, transcribe_media,
-    process_media_segment,
+    process_media_segment, passthrough_media_segment,
 )
 
 
@@ -179,3 +179,62 @@ async def test_process_transcription_failure():
          patch("src.core.media_processor._cleanup_temp"):
         result = await process_media_segment(seg, "image", settings)
         assert result == '<image filename="pic.jpg" error="transcription_failed" />'
+
+
+# --- Passthrough ---
+
+@pytest.mark.anyio
+async def test_passthrough_image():
+    seg = MagicMock()
+    seg.url = "https://example.com/cat.jpg"
+    seg.get_file_name.return_value = "cat.jpg"
+    seg.download = AsyncMock(return_value="/tmp/cat.jpg")
+    settings = {"media": {"image": {"passthrough": True}}}
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=mock_file)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_file.read.return_value = b"fake image bytes"
+    with patch("builtins.open", return_value=mock_file), \
+         patch("src.core.media_processor._cleanup_temp"):
+        result = await passthrough_media_segment(seg, "image", settings)
+        assert result is not None
+        assert result["type"] == "image_url"
+        assert result["image_url"]["url"].startswith("data:image/")
+
+
+@pytest.mark.anyio
+async def test_passthrough_disabled():
+    seg = MagicMock()
+    seg.get_file_name.return_value = "cat.jpg"
+    settings = {"media": {"image": {"passthrough": False}}}
+    result = await passthrough_media_segment(seg, "image", settings)
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_passthrough_download_failure():
+    seg = MagicMock()
+    seg.get_file_name.return_value = "cat.jpg"
+    seg.download = AsyncMock(side_effect=Exception("network error"))
+    settings = {"media": {"image": {"passthrough": True}}}
+    result = await passthrough_media_segment(seg, "image", settings)
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_passthrough_audio_with_trim():
+    seg = MagicMock()
+    seg.url = "https://example.com/voice.amr"
+    seg.get_file_name.return_value = "voice.amr"
+    seg.download = AsyncMock(return_value="/tmp/voice.amr")
+    settings = {"media": {"audio": {"passthrough": True, "max_duration": 60}}}
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=mock_file)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_file.read.return_value = b"fake audio bytes"
+    with patch("builtins.open", return_value=mock_file), \
+         patch("src.core.media_processor.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
+         patch("src.core.media_processor._cleanup_temp"):
+        result = await passthrough_media_segment(seg, "audio", settings)
+        assert result is not None
+        assert result["image_url"]["url"].startswith("data:audio/")
