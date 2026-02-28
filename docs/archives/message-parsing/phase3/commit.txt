@@ -1,3 +1,7 @@
 b066287fa0cde156f64b80e04bd6c01ee13bc113 feat(media): add passthrough_media_segment for direct LLM input
 34407fc2c2374902b8703a84ff67cb47902e0b2c feat(parser): add passthrough content_blocks to ParsedMessage
 eed6e0fa90672a1fce2faa525730be47c080e743 feat(scheduler): build multimodal content list for passthrough media
+7e947aa0d9f607f3e83c2e863d1f6cceea53470e feat(agent): accept multimodal content list in _invoke
+cd8a3f7f86784e11fe826ff0328db8b9628707b3 feat(media): support async passthrough for large files
+0eeaf5b7f0832955e53a06abfb167895fa6a7cf2 test: add integration test for media passthrough flow
+9c5759a92c682d95353c12c5e08d985b319dcf6e fix(scheduler): don't enqueue placeholder for large files, resolve first
