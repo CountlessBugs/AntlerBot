@@ -492,3 +492,51 @@ async def test_summarize_command_empty_history():
         await commands.handle_command("111", "/summarize", api, event)
     text = api.post_private_msg.call_args[1]["text"]
     assert "上下文为空" in text
+
+
+# --- _sanitize_content ---
+
+def test_sanitize_content_plain_string():
+    assert commands._sanitize_content("hello world") == "hello world"
+
+
+def test_sanitize_content_string_with_base64():
+    s = "prefix data:image/png;base64,iVBORw0KGgo= suffix"
+    assert commands._sanitize_content(s) == 'prefix <base64 type="media" /> suffix'
+
+
+def test_sanitize_content_multimodal_image():
+    content = [
+        {"type": "text", "text": "look at this\n\n<media>"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123=="}},
+        {"type": "text", "text": "</media>"},
+    ]
+    result = commands._sanitize_content(content)
+    assert result == 'look at this\n\n<media><base64 type="image" /></media>'
+
+
+def test_sanitize_content_multimodal_audio():
+    content = [
+        {"type": "text", "text": "listen: "},
+        {"type": "image_url", "image_url": {"url": "data:audio/mpeg;base64,AAAA"}},
+    ]
+    result = commands._sanitize_content(content)
+    assert result == 'listen: <base64 type="audio" />'
+
+
+def test_sanitize_content_multimodal_video():
+    content = [
+        {"type": "image_url", "image_url": {"url": "data:video/mp4;base64,BBBB"}},
+    ]
+    assert commands._sanitize_content(content) == '<base64 type="video" />'
+
+
+def test_sanitize_content_unknown_mime():
+    content = [
+        {"type": "image_url", "image_url": {"url": "data:application/octet-stream;base64,XX"}},
+    ]
+    assert commands._sanitize_content(content) == '<base64 type="media" />'
+
+
+def test_sanitize_content_non_list_non_string():
+    assert commands._sanitize_content(42) == "42"

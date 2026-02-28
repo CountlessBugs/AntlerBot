@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import tempfile
 from datetime import datetime
 
@@ -44,6 +45,36 @@ def get_role(user_id: str) -> int:
 
 # Registry: name → (min_role, handler, description, usage)
 _COMMANDS: dict[str, tuple[int, callable, str, str]] = {}
+
+
+_BASE64_DATA_RE = re.compile(r"data:[^;]+;base64,[A-Za-z0-9+/=]+")
+_MIME_TAG = {"image": "image", "audio": "audio", "video": "video"}
+
+
+def _sanitize_content(content) -> str:
+    """Replace base64 media in multimodal content with readable placeholders."""
+    if isinstance(content, str):
+        return _BASE64_DATA_RE.sub('<base64 type="media" />', content)
+    if not isinstance(content, list):
+        return str(content)
+    parts = []
+    for block in content:
+        if not isinstance(block, dict):
+            parts.append(str(block))
+            continue
+        if block.get("type") == "image_url":
+            url = block.get("image_url", {}).get("url", "")
+            # extract mime category from "data:image/png;base64,..."
+            tag = "media"
+            m = re.match(r"data:(\w+)/", url)
+            if m:
+                tag = _MIME_TAG.get(m.group(1), "media")
+            parts.append(f'<base64 type="{tag}" />')
+        elif block.get("type") == "text":
+            parts.append(block.get("text", ""))
+        else:
+            parts.append(str(block))
+    return "".join(parts)
 
 
 def _register(name: str, min_role: int, description: str, usage: str = ""):
@@ -117,9 +148,9 @@ async def _cmd_raw(user_id, args, bot_api, event):
             break
     parts = []
     if last_human:
-        parts.append(f"[Human] {last_human.content}")
+        parts.append(f"[Human] {_sanitize_content(last_human.content)}")
     if last_ai:
-        parts.append(f"[AI] {last_ai.content}")
+        parts.append(f"[AI] {_sanitize_content(last_ai.content)}")
     await bot_api.post_private_msg(user_id=event.user_id, text="\n".join(parts) or "无内容")
 
 
@@ -162,7 +193,7 @@ async def _cmd_context(user_id, args, bot_api, event):
     if not agent._history:
         await bot_api.post_private_msg(user_id=event.user_id, text="当前上下文无内容")
         return
-    text = "\n".join(f"[{type(m).__name__.replace('Message', '')}] {m.content}" for m in agent._history)
+    text = "\n".join(f"[{type(m).__name__.replace('Message', '')}] {_sanitize_content(m.content)}" for m in agent._history)
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8-sig") as f:
         f.write(text)
         path = f.name
