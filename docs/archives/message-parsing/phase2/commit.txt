@@ -12,3 +12,6 @@ ea26d0304b2fa7729a6e279efa846299a258fe30 test: add integration test for media tr
 5bad014d3a2102d8f0505372ea1a2708ab396cc1 chore: add pytest.ini to filter AsyncMock RuntimeWarning
 437bbc11a046ca19c9bf2c081f466a3f9db76278 fix: file segment download fallback and document transcription
 7ffd1d558f942ff82a1df1452c80d8505ba6c991 fix: standardize media XML tag format and filename resolution
+02da91fb14b3b54b13824890ff9b2c1ea504791d fix: harden transcription prompts against prompt injection
+2f2698a feat: add file type detection and pass filename to transcription LLM
+97d2d52 perf: parallelize media task resolution and reuse httpx client
