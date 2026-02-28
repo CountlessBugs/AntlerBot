@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 
@@ -11,6 +12,12 @@ from src.core import contact_cache, media_processor
 from src.data.face_map import FACE_MAP
 
 logger = logging.getLogger(__name__)
+
+_EXT_MEDIA_TYPE = {
+    "audio": {".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".amr", ".m4a", ".opus"},
+    "video": {".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".3gp"},
+    "image": {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".tiff", ".ico"},
+}
 
 
 @dataclass
@@ -44,6 +51,15 @@ _MEDIA_TYPE_MAP = {
     Video: "video",
     File: "document",
 }
+
+
+def _detect_file_media_type(filename: str) -> str:
+    """Detect media type from file extension. Falls back to 'document'."""
+    ext = os.path.splitext(filename)[1].lower()
+    for media_type, exts in _EXT_MEDIA_TYPE.items():
+        if ext in exts:
+            return media_type
+    return "document"
 
 
 async def _parse_at(seg) -> str:
@@ -95,9 +111,11 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                 None,
             )
             if media_type:
+                filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
+                if isinstance(seg, File) and filename:
+                    media_type = _detect_file_media_type(filename)
                 type_cfg = settings.get("media", {}).get(media_type, {})
                 tag = media_processor._MEDIA_TAG.get(media_type, media_type)
-                filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
                 fn_attr = f' filename="{filename}"' if filename else ""
                 if type_cfg.get("transcribe", False):
                     pid = uuid.uuid4().hex[:12]

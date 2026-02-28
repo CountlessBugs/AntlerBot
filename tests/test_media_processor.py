@@ -124,6 +124,7 @@ async def test_process_image_transcribe():
     seg = MagicMock()
     seg.url = "https://example.com/cat.jpg"
     seg.file_name = "cat.jpg"
+    seg.get_file_name.return_value = "cat.jpg"
     seg.download = AsyncMock(return_value="/tmp/cat.jpg")
     settings = {"media": {"image": {"transcribe": True}}}
     with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value="一只猫"), \
@@ -136,15 +137,17 @@ async def test_process_image_transcribe():
 async def test_process_image_disabled():
     seg = MagicMock()
     seg.file_name = "cat.jpg"
+    seg.get_file_name.return_value = "cat.jpg"
     settings = {"media": {"image": {"transcribe": False}}}
     result = await process_media_segment(seg, "image", settings)
-    assert result == "<image />"
+    assert result == '<image filename="cat.jpg" />'
 
 
 @pytest.mark.anyio
 async def test_process_audio_transcribe_with_trim():
     seg = MagicMock()
     seg.file_name = "voice.amr"
+    seg.get_file_name.return_value = "voice.amr"
     seg.download = AsyncMock(return_value="/tmp/voice.amr")
     settings = {"media": {"audio": {"transcribe": True, "max_duration": 60, "trim_over_limit": True}}}
     with patch("src.core.media_processor.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
@@ -158,19 +161,21 @@ async def test_process_audio_transcribe_with_trim():
 async def test_process_download_failure():
     seg = MagicMock()
     seg.file_name = "pic.jpg"
+    seg.get_file_name.return_value = "pic.jpg"
     seg.download = AsyncMock(side_effect=Exception("network error"))
     settings = {"media": {"image": {"transcribe": True}}}
     result = await process_media_segment(seg, "image", settings)
-    assert result == '<image error="下载失败" />'
+    assert result == '<image filename="pic.jpg" error="download_failed" />'
 
 
 @pytest.mark.anyio
 async def test_process_transcription_failure():
     seg = MagicMock()
     seg.file_name = "pic.jpg"
+    seg.get_file_name.return_value = "pic.jpg"
     seg.download = AsyncMock(return_value="/tmp/pic.jpg")
     settings = {"media": {"image": {"transcribe": True}}}
     with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value=None), \
          patch("src.core.media_processor._cleanup_temp"):
         result = await process_media_segment(seg, "image", settings)
-        assert result == '<image error="转述失败" />'
+        assert result == '<image filename="pic.jpg" error="transcription_failed" />'

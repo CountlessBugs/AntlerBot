@@ -175,13 +175,14 @@ def _get_transcription_llm(settings: dict | None = None):
     return _transcription_llm
 
 
-async def transcribe_media(path: str, media_type: str, settings: dict | None = None) -> str | None:
+async def transcribe_media(path: str, media_type: str, settings: dict | None = None, filename: str = "") -> str | None:
     """Transcribe a media file using the configured LLM. Returns description text or None."""
     try:
         llm = _get_transcription_llm(settings)
         prompt = _TRANSCRIPTION_PROMPTS.get(media_type, "请描述这个文件的内容。")
         from langchain_core.messages import HumanMessage, SystemMessage
         sys_msg = SystemMessage(content=_TRANSCRIPTION_SYSTEM)
+        fn_attr = f' filename="{filename}"' if filename else ""
 
         # Documents: read as text and send inline, wrapped in XML tags
         if media_type == "document":
@@ -191,7 +192,7 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
             except UnicodeDecodeError:
                 with open(path, "r", encoding="gbk", errors="replace") as f:
                     text = f.read()
-            msg = HumanMessage(content=f"{prompt}\n\n<document>\n{text}\n</document>")
+            msg = HumanMessage(content=f"{prompt}\n\n<document{fn_attr}>\n{text}\n</document>")
             response = await llm.ainvoke([sys_msg, msg])
             return response.content
 
@@ -207,7 +208,7 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
         mime = mime_map.get(media_type, "application/octet-stream")
 
         msg = HumanMessage(content=[
-            {"type": "text", "text": f"{prompt}\n\n<media>"},
+            {"type": "text", "text": f"{prompt}\n\n<media{fn_attr}>"},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}},
             {"type": "text", "text": "</media>"},
         ])
@@ -270,7 +271,7 @@ async def process_media_segment(seg, media_type: str, settings: dict, source: st
                     path = trimmed
 
         # Transcribe
-        desc = await transcribe_media(path, media_type, settings)
+        desc = await transcribe_media(path, media_type, settings, filename)
         if desc:
             return f"<{tag}{fn_attr}>{desc}</{tag}>"
         return f'<{tag}{fn_attr} error="transcription_failed" />'
