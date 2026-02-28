@@ -28,16 +28,17 @@ def get_current_source() -> dict | None:
     return {"type": type_, "id": id_}
 
 
-def _batch(items: list) -> list[tuple[str, list[str], list]]:
-    groups: dict[str, tuple[list, list]] = {}
+def _batch(items: list) -> list[tuple[str, list[str], list, list]]:
+    groups: dict[str, tuple[list, list, list]] = {}
     order: list[str] = []
-    for _, _, source_key, msg, reply_fn, _parsed_msg in items:
+    for _, _, source_key, msg, reply_fn, parsed_msg in items:
         if source_key not in groups:
-            groups[source_key] = ([], [])
+            groups[source_key] = ([], [], [])
             order.append(source_key)
         groups[source_key][0].append(msg)
         groups[source_key][1].append(reply_fn)
-    return [(k, groups[k][0], groups[k][1]) for k in order]
+        groups[source_key][2].append(parsed_msg)
+    return [(k, groups[k][0], groups[k][1], groups[k][2]) for k in order]
 
 
 def init_timeout(apscheduler) -> None:
@@ -53,7 +54,7 @@ async def enqueue(priority: int, source_key: str, msg: str, reply_fn,
                   parsed_message: ParsedMessage | None = None) -> None:
     # Always enqueue immediately — media placeholders are already visible as
     # <tag status="downloading" id="..." /> in the message text.
-    await _enqueue_ready(priority, source_key, msg, reply_fn)
+    await _enqueue_ready(priority, source_key, msg, reply_fn, parsed_message)
     if parsed_message and parsed_message.media_tasks:
         asyncio.create_task(
             _resolve_media_and_enqueue(priority, source_key, reply_fn, parsed_message)
@@ -80,12 +81,23 @@ async def _resolve_media_and_enqueue(
         await _enqueue_ready(priority, source_key, "\n".join(parts), reply_fn)
 
 
-async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn) -> None:
+def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str | list:
+    """Build agent input content. Returns a list if there are passthrough content blocks, else a string."""
+    if not parsed_message or not parsed_message.content_blocks:
+        return msg
+    return [
+        {"type": "text", "text": msg},
+        *parsed_message.content_blocks,
+    ]
+
+
+async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn,
+                         parsed_message: ParsedMessage | None = None) -> None:
     """Enqueue a message that is ready to be processed (no pending media)."""
     global _processing, _counter
     async with _lock:
         _counter += 1
-        await _queue.put((priority, _counter, source_key, msg, reply_fn, None))
+        await _queue.put((priority, _counter, source_key, msg, reply_fn, parsed_message))
         should_start = not _processing
         if should_start:
             _processing = True
@@ -108,10 +120,20 @@ async def _process_loop():
                 while not _queue.empty():
                     items.append(_queue.get_nowait())
             batches = _batch(items)
-            for source_key, msgs, reply_fns in batches:
+            for source_key, msgs, reply_fns, parsed_msgs in batches:
                 _current_source = source_key
                 logger.info("processing | source=%s batch=%d", source_key, len(msgs))
-                async for seg in agent._invoke("user_message", "\n".join(msgs)):
+                combined_msg = "\n".join(msgs)
+                # Merge content_blocks from all parsed messages in the batch
+                all_blocks = []
+                for pm in parsed_msgs:
+                    if pm and pm.content_blocks:
+                        all_blocks.extend(pm.content_blocks)
+                if all_blocks:
+                    content = [{"type": "text", "text": combined_msg}, *all_blocks]
+                else:
+                    content = combined_msg
+                async for seg in agent._invoke("user_message", content):
                     await reply_fns[-1](seg)
             if _apscheduler is not None and agent.has_history():
                 settings = agent.load_settings()
