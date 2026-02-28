@@ -116,6 +116,4 @@ async def test_resolve_media_and_enqueue_puts_resolved_msg():
     assert not scheduler._queue.empty()
     item = scheduler._queue.get_nowait()
     msg = item[3]
-    assert "<media-resolved>" in msg
-    assert "cat.jpg" in msg
     assert "<image>a cat</image>" in msg

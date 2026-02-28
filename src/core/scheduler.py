@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from apscheduler.triggers.date import DateTrigger
 from src.core import agent
-from src.core.message_parser import ParsedMessage
+from src.core.message_parser import MediaTask, ParsedMessage
 from src.core.media_processor import _MEDIA_TAG
 
 logger = logging.getLogger(__name__)
@@ -151,16 +151,20 @@ async def _on_session_clear() -> None:
 
 
 async def _resolve_media_tasks(pm: ParsedMessage, timeout: float) -> dict[str, str]:
-    """Await all media tasks and return {placeholder_id: result} mapping."""
-    results: dict[str, str] = {}
-    for mt in pm.media_tasks:
+    """Await all media tasks in parallel and return {placeholder_id: result} mapping."""
+    if not pm.media_tasks:
+        return {}
+
+    async def _resolve_one(mt: MediaTask) -> tuple[str, str]:
         tag = _MEDIA_TAG.get(mt.media_type, mt.media_type)
         try:
             result = await asyncio.wait_for(mt.task, timeout=timeout)
-            results[mt.placeholder_id] = result
+            return mt.placeholder_id, result
         except asyncio.TimeoutError:
             mt.task.cancel()
-            results[mt.placeholder_id] = f'<{tag} error="处理超时" />'
+            return mt.placeholder_id, f'<{tag} error="处理超时" />'
         except Exception:
-            results[mt.placeholder_id] = f'<{tag} error="处理失败" />'
-    return results
+            return mt.placeholder_id, f'<{tag} error="处理失败" />'
+
+    pairs = await asyncio.gather(*[_resolve_one(mt) for mt in pm.media_tasks])
+    return dict(pairs)

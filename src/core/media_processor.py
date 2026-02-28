@@ -6,7 +6,18 @@ import os
 import shutil
 import tempfile
 
+import httpx
+
 logger = logging.getLogger(__name__)
+
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=60)
+    return _http_client
 
 _ffmpeg_available: bool | None = None
 
@@ -46,13 +57,11 @@ def _seg_can_download(seg) -> bool:
 
 async def _download_via_url(url: str, name: str, tmp_dir: str) -> str:
     """Download a file from URL to tmp_dir."""
-    import httpx
     path = os.path.join(tmp_dir, name)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, timeout=60)
-        resp.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(resp.content)
+    resp = await _get_http_client().get(url)
+    resp.raise_for_status()
+    with open(path, "wb") as f:
+        f.write(resp.content)
     return path
 
 
