@@ -53,6 +53,10 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 
 **Post-implementation fix:** `process_media_segment()` now accepts and passes `source` param to `download_media()`.
 
+**Post-implementation fix:** Standardized XML tag format and content:
+- All media tags now include `filename` attribute (not just transcribed ones) via `seg.get_file_name()` instead of `seg.file_name` (which is often `None`)
+- Error attribute values changed to English: `download_failed`, `trim_failed`, `transcription_failed`
+
 ### Task 7: Update parse_message() to return ParsedMessage with media tasks
 
 - Changed `parse_message()` return type from `str` to `ParsedMessage`
@@ -64,6 +68,8 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - 3 new tests: `test_parse_returns_parsed_message`, `test_parse_image_transcribe_creates_task`, `test_parse_image_no_transcribe_placeholder`
 
 **Post-implementation fix:** `parse_message()` now accepts `source` param, passes it through to `process_media_segment()`.
+
+**Post-implementation fix:** Media placeholder status changed from `downloading` to `loading`. Filename extraction uses `seg.get_file_name()` for reliable fallback. Non-transcribe tags now also include `filename` attribute.
 
 ### Task 8: Add _resolve_media to scheduler
 
@@ -91,6 +97,8 @@ Added `ParsedMessage` and `MediaTask` dataclasses to the message parser, and med
 - Updated existing scheduler tests for new tuple shape and removed media timeout mocks from `_process_loop` tests
 
 **Post-implementation fix:** Both `on_group` and `on_private` now construct `source_key` (`group_{id}` / `private_{id}`) and pass it to `parse_message()` for file URL resolution.
+
+**Post-implementation fix:** Removed `<media-resolved>` wrapper and label prefix from resolved media enqueue — resolved tags are now sent directly (e.g. `<image filename="cat.jpg">描述</image>`).
 
 ### Task 10: Full integration test and final verification
 

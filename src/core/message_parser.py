@@ -97,11 +97,11 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
             if media_type:
                 type_cfg = settings.get("media", {}).get(media_type, {})
                 tag = media_processor._MEDIA_TAG.get(media_type, media_type)
+                filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
+                fn_attr = f' filename="{filename}"' if filename else ""
                 if type_cfg.get("transcribe", False):
                     pid = uuid.uuid4().hex[:12]
-                    filename = getattr(seg, "file_name", "") or ""
-                    fn_attr = f' filename="{filename}"' if filename else ""
-                    placeholder = f'<{tag} status="downloading"{fn_attr} />'
+                    placeholder = f'<{tag} status="loading"{fn_attr} />'
                     parts.append(placeholder)
                     task = asyncio.create_task(
                         media_processor.process_media_segment(seg, media_type, settings, source)
@@ -111,7 +111,7 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                         filename=filename, placeholder_tag=placeholder,
                     ))
                 else:
-                    parts.append(f"<{tag} />")
+                    parts.append(f"<{tag}{fn_attr} />")
             else:
                 try:
                     summary = seg.get_summary()

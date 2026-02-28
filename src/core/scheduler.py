@@ -75,11 +75,9 @@ async def _resolve_media_and_enqueue(
     parts: list[str] = []
     for mt in parsed_message.media_tasks:
         if mt.placeholder_id in results:
-            label = mt.filename or mt.media_type
-            parts.append(f'{label}: {results[mt.placeholder_id]}')
+            parts.append(results[mt.placeholder_id])
     if parts:
-        notice = "<media-resolved>\n" + "\n".join(parts) + "\n</media-resolved>"
-        await _enqueue_ready(priority, source_key, notice, reply_fn)
+        await _enqueue_ready(priority, source_key, "\n".join(parts), reply_fn)
 
 
 async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn) -> None:

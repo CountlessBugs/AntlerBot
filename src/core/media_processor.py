@@ -231,15 +231,17 @@ async def process_media_segment(seg, media_type: str, settings: dict, source: st
     """Full pipeline: download → trim → transcribe → format result."""
     tag = _MEDIA_TAG.get(media_type, media_type)
     type_cfg = settings.get("media", {}).get(media_type, {})
-    filename = getattr(seg, "file_name", "") or ""
+    filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
+
+    fn_attr = f' filename="{filename}"' if filename else ""
 
     if not type_cfg.get("transcribe", False):
-        return f"<{tag} />"
+        return f"<{tag}{fn_attr} />"
 
     # Download
     path = await download_media(seg, source)
     if not path:
-        return f'<{tag} error="下载失败" />'
+        return f'<{tag}{fn_attr} error="download_failed" />'
 
     try:
         # Trim (audio/video only)
@@ -249,9 +251,9 @@ async def process_media_segment(seg, media_type: str, settings: dict, source: st
                 trimmed = await trim_media(path, max_dur)
                 if trimmed is None:
                     if type_cfg.get("trim_over_limit", True):
-                        return f'<{tag} error="裁剪失败" />'
+                        return f'<{tag}{fn_attr} error="trim_failed" />'
                     else:
-                        return f"<{tag} />"
+                        return f"<{tag}{fn_attr} />"
                 if trimmed != path:
                     _cleanup_temp(path)
                     path = trimmed
@@ -259,8 +261,7 @@ async def process_media_segment(seg, media_type: str, settings: dict, source: st
         # Transcribe
         desc = await transcribe_media(path, media_type, settings)
         if desc:
-            fn_attr = f' filename="{filename}"' if filename else ""
             return f"<{tag}{fn_attr}>{desc}</{tag}>"
-        return f'<{tag} error="转述失败" />'
+        return f'<{tag}{fn_attr} error="transcription_failed" />'
     finally:
         _cleanup_temp(path)
