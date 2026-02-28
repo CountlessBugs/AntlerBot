@@ -257,7 +257,7 @@ def _ensure_initialized():
 
 async def _invoke(
     reason: Literal["user_message", "scheduled_task", "complex_reschedule", "session_timeout"],
-    message: str = "",
+    message: str | list = "",
     *,
     messages: list[BaseMessage] | None = None,
     schema: type | None = None,

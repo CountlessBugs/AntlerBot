@@ -89,6 +89,33 @@ async def test_invoke_returns_ai_content():
 
 
 @pytest.mark.anyio
+async def test_invoke_accepts_multimodal_content_list():
+    """When message is a list (multimodal), HumanMessage uses content=list."""
+    content = [
+        {"type": "text", "text": "look at this"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+    ]
+
+    def fake_astream_events(s, version):
+        agent_mod._history = s["messages"] + [AIMessage("got it")]
+        return _aiter([_make_stream_event("got it")])
+
+    mock_graph = MagicMock()
+    mock_graph.astream_events.side_effect = fake_astream_events
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph):
+        async for _ in agent_mod._invoke("user_message", content):
+            pass
+    # Verify HumanMessage was created with list content
+    sent_msgs = mock_graph.astream_events.call_args[0][0]["messages"]
+    human_msg = sent_msgs[-1]
+    assert isinstance(human_msg, HumanMessage)
+    assert isinstance(human_msg.content, list)
+    assert len(human_msg.content) == 2
+    assert human_msg.content[1]["type"] == "image_url"
+
+
+@pytest.mark.anyio
 async def test_invoke_accumulates_history():
     def fake_astream_events(s, version):
         agent_mod._history = s["messages"] + [AIMessage("reply")]
