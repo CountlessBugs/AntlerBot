@@ -1,0 +1,3 @@
+b066287fa0cde156f64b80e04bd6c01ee13bc113 feat(media): add passthrough_media_segment for direct LLM input
+34407fc2c2374902b8703a84ff67cb47902e0b2c feat(parser): add passthrough content_blocks to ParsedMessage
+eed6e0fa90672a1fce2faa525730be47c080e743 feat(scheduler): build multimodal content list for passthrough media
