@@ -33,6 +33,7 @@ class MediaTask:
 class ParsedMessage:
     text: str
     media_tasks: list[MediaTask] = field(default_factory=list)
+    content_blocks: list[dict] = field(default_factory=list)
 
     def resolve(self, results: dict[str, str] | None = None) -> str:
         """Replace downloading placeholders with resolved media content."""
@@ -118,6 +119,7 @@ async def _parse_reply(seg, settings: dict) -> str:
 async def parse_message(message_array, settings: dict, source: str = "") -> ParsedMessage:
     parts: list[str] = []
     media_tasks: list[MediaTask] = []
+    content_blocks: list[dict] = []
     for seg in message_array:
         if isinstance(seg, Text):
             parts.append(seg.text)
@@ -169,6 +171,18 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                             placeholder_id=pid, task=task, media_type=media_type,
                             filename=filename, placeholder_tag=placeholder,
                         ))
+                elif type_cfg.get("passthrough", False):
+                    try:
+                        block = await media_processor.passthrough_media_segment(
+                            seg, media_type, settings, source
+                        )
+                        if block:
+                            content_blocks.append(block)
+                        else:
+                            parts.append(f"<{tag}{fn_attr} />")
+                    except Exception:
+                        logger.warning("Failed to passthrough media segment", exc_info=True)
+                        parts.append(f"<{tag}{fn_attr} />")
                 else:
                     parts.append(f"<{tag}{fn_attr} />")
             else:
@@ -177,4 +191,4 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                 except Exception:
                     summary = None
                 parts.append(summary or f'<unsupported type="{seg.type}" />')
-    return ParsedMessage(text="".join(parts), media_tasks=media_tasks)
+    return ParsedMessage(text="".join(parts), media_tasks=media_tasks, content_blocks=content_blocks)

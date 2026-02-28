@@ -377,3 +377,60 @@ async def test_small_file_processing_failure():
         result = await parse_message(msg, settings)
     assert result.media_tasks == []
     assert '<image error="处理失败" />' in result.text
+
+
+# --- Passthrough ---
+
+@pytest.mark.anyio
+async def test_parse_image_passthrough_creates_content_block():
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": False, "passthrough": True},
+        "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)
+    seg.get_file_name = MagicMock(return_value="pic.jpg")
+    msg = [_make_seg("Text", text="look at this "), seg]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.passthrough_media_segment = AsyncMock(
+            return_value={"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
+        )
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert result.text == "look at this "
+    assert len(result.content_blocks) == 1
+    assert result.content_blocks[0]["type"] == "image_url"
+
+
+@pytest.mark.anyio
+async def test_parse_image_transcribe_overrides_passthrough():
+    """transcribe=true takes priority over passthrough=true."""
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": True, "passthrough": True},
+        "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)
+    seg.get_file_name = MagicMock(return_value="pic.jpg")
+    msg = [seg]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.process_media_segment = AsyncMock(return_value='<image filename="pic.jpg">a cat</image>')
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert result.content_blocks == []
+    assert "a cat" in result.text
+
+
+@pytest.mark.anyio
+async def test_parse_passthrough_failure_falls_back_to_placeholder():
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"transcribe": False, "passthrough": True},
+        "timeout": 60, "sync_process_threshold_mb": 1,
+    }}
+    seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)
+    seg.get_file_name = MagicMock(return_value="pic.jpg")
+    msg = [seg]
+    with patch("src.core.message_parser.media_processor") as mock_mp:
+        mock_mp.passthrough_media_segment = AsyncMock(return_value=None)
+        mock_mp._MEDIA_TAG = {"image": "image", "audio": "audio", "video": "video", "document": "file"}
+        result = await parse_message(msg, settings)
+    assert result.content_blocks == []
+    assert "<image" in result.text
