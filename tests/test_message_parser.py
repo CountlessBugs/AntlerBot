@@ -212,8 +212,8 @@ def test_parsed_message_no_media():
 
 
 def test_parsed_message_with_placeholder():
-    pm = ParsedMessage(text="look {{media:abc123}} nice", media_tasks=[])
-    assert "{{media:abc123}}" in pm.text
+    pm = ParsedMessage(text='look <image status="downloading" filename="cat.jpg" /> nice', media_tasks=[])
+    assert 'status="downloading"' in pm.text
 
 
 def test_parsed_message_resolve_no_tasks():
@@ -222,12 +222,18 @@ def test_parsed_message_resolve_no_tasks():
 
 
 def test_parsed_message_resolve_replaces_placeholders():
-    pm = ParsedMessage(text="look {{media:id1}} nice", media_tasks=[])
+    tag = '<image status="downloading" filename="cat.jpg" />'
+    mt = MediaTask(placeholder_id="id1", task=AsyncMock()(), media_type="image",
+                   filename="cat.jpg", placeholder_tag=tag)
+    pm = ParsedMessage(text=f'look {tag} nice', media_tasks=[mt])
     assert pm.resolve({"id1": '<image filename="cat.jpg">a cat</image>'}) == 'look <image filename="cat.jpg">a cat</image> nice'
 
 
 def test_parsed_message_resolve_failed_placeholder():
-    pm = ParsedMessage(text="see {{media:id1}} here", media_tasks=[])
+    tag = '<image status="downloading" filename="cat.jpg" />'
+    mt = MediaTask(placeholder_id="id1", task=AsyncMock()(), media_type="image",
+                   filename="cat.jpg", placeholder_tag=tag)
+    pm = ParsedMessage(text=f'see {tag} here', media_tasks=[mt])
     assert pm.resolve({"id1": '<image error="处理失败" />'}) == 'see <image error="处理失败" /> here'
 
 
@@ -252,7 +258,7 @@ async def test_parse_image_transcribe_creates_task():
         result = await parse_message(msg, settings)
         assert isinstance(result, ParsedMessage)
         assert len(result.media_tasks) == 1
-        assert "{{media:" in result.text
+        assert 'status="downloading"' in result.text
 
 
 @pytest.mark.anyio

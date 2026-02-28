@@ -12,14 +12,14 @@ from src.data.face_map import FACE_MAP
 
 logger = logging.getLogger(__name__)
 
-MEDIA_PREFIX = "media:"
-
 
 @dataclass
 class MediaTask:
     placeholder_id: str
     task: asyncio.Task
     media_type: str  # "image" / "audio" / "video" / "document"
+    filename: str = ""
+    placeholder_tag: str = ""
 
 
 @dataclass
@@ -28,11 +28,13 @@ class ParsedMessage:
     media_tasks: list[MediaTask] = field(default_factory=list)
 
     def resolve(self, results: dict[str, str] | None = None) -> str:
+        """Replace downloading placeholders with resolved media content."""
         if not results:
             return self.text
         out = self.text
-        for pid, replacement in results.items():
-            out = out.replace(f"{{{{{MEDIA_PREFIX}{pid}}}}}", replacement)
+        for mt in self.media_tasks:
+            if mt.placeholder_id in results:
+                out = out.replace(mt.placeholder_tag, results[mt.placeholder_id])
         return out
 
 
@@ -94,15 +96,21 @@ async def parse_message(message_array, settings: dict) -> ParsedMessage:
             )
             if media_type:
                 type_cfg = settings.get("media", {}).get(media_type, {})
+                tag = media_processor._MEDIA_TAG.get(media_type, media_type)
                 if type_cfg.get("transcribe", False):
                     pid = uuid.uuid4().hex[:12]
-                    parts.append(f"{{{{{MEDIA_PREFIX}{pid}}}}}")
+                    filename = getattr(seg, "file_name", "") or ""
+                    fn_attr = f' filename="{filename}"' if filename else ""
+                    placeholder = f'<{tag} status="downloading"{fn_attr} />'
+                    parts.append(placeholder)
                     task = asyncio.create_task(
                         media_processor.process_media_segment(seg, media_type, settings)
                     )
-                    media_tasks.append(MediaTask(placeholder_id=pid, task=task, media_type=media_type))
+                    media_tasks.append(MediaTask(
+                        placeholder_id=pid, task=task, media_type=media_type,
+                        filename=filename, placeholder_tag=placeholder,
+                    ))
                 else:
-                    tag = media_processor._MEDIA_TAG.get(media_type, media_type)
                     parts.append(f"<{tag} />")
             else:
                 try:

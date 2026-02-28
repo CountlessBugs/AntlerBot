@@ -7,38 +7,34 @@ import src.core.scheduler as scheduler
 
 @pytest.mark.anyio
 async def test_resolve_media_tasks_success():
-    from src.core.scheduler import _resolve_media
+    from src.core.scheduler import _resolve_media_tasks
     task = AsyncMock(return_value='<image filename="cat.jpg">a cat</image>')()
+    tag = '<image status="downloading" filename="cat.jpg" />'
     pm = ParsedMessage(
-        text="look {{media:id1}} nice",
-        media_tasks=[MediaTask(placeholder_id="id1", task=task, media_type="image")],
+        text=f'look {tag} nice',
+        media_tasks=[MediaTask(placeholder_id="id1", task=task, media_type="image",
+                               filename="cat.jpg", placeholder_tag=tag)],
     )
-    result = await _resolve_media(pm, timeout=10)
-    assert result == 'look <image filename="cat.jpg">a cat</image> nice'
+    results = await _resolve_media_tasks(pm, timeout=10)
+    assert results["id1"] == '<image filename="cat.jpg">a cat</image>'
 
 
 @pytest.mark.anyio
 async def test_resolve_media_tasks_timeout():
-    from src.core.scheduler import _resolve_media
+    from src.core.scheduler import _resolve_media_tasks
 
     async def slow():
         await asyncio.sleep(100)
 
     task = asyncio.create_task(slow())
+    tag = '<image status="downloading" filename="cat.jpg" />'
     pm = ParsedMessage(
-        text="see {{media:id1}} here",
-        media_tasks=[MediaTask(placeholder_id="id1", task=task, media_type="image")],
+        text=f'see {tag} here',
+        media_tasks=[MediaTask(placeholder_id="id1", task=task, media_type="image",
+                               filename="cat.jpg", placeholder_tag=tag)],
     )
-    result = await _resolve_media(pm, timeout=0.01)
-    assert '<image error="处理超时" />' in result
-
-
-@pytest.mark.anyio
-async def test_resolve_no_media_tasks():
-    from src.core.scheduler import _resolve_media
-    pm = ParsedMessage(text="hello world", media_tasks=[])
-    result = await _resolve_media(pm, timeout=10)
-    assert result == "hello world"
+    results = await _resolve_media_tasks(pm, timeout=0.01)
+    assert '<image error="处理超时" />' in results["id1"]
 
 
 @pytest.fixture(autouse=True)
@@ -57,20 +53,20 @@ def reset_scheduler_state():
 
 
 @pytest.mark.anyio
-async def test_enqueue_with_media_does_not_block_queue():
-    """Messages with media tasks should not block other messages from processing."""
-    media_started = asyncio.Event()
+async def test_enqueue_with_media_enqueues_immediately():
+    """Messages with media tasks should be enqueued immediately with downloading placeholders."""
     media_gate = asyncio.Event()
 
     async def slow_media():
-        media_started.set()
         await media_gate.wait()
         return '<image filename="cat.jpg">a cat</image>'
 
     media_task = asyncio.create_task(slow_media())
+    tag = '<image status="downloading" filename="cat.jpg" />'
     pm = ParsedMessage(
-        text="look {{media:id1}}",
-        media_tasks=[MediaTask(placeholder_id="id1", task=media_task, media_type="image")],
+        text=f'look {tag}',
+        media_tasks=[MediaTask(placeholder_id="id1", task=media_task, media_type="image",
+                               filename="cat.jpg", placeholder_tag=tag)],
     )
 
     replies = []
@@ -83,22 +79,17 @@ async def test_enqueue_with_media_does_not_block_queue():
     with patch.object(scheduler.agent, "_invoke", fake_invoke), \
          patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}), \
          patch.object(scheduler.agent, "has_history", return_value=False):
-        # Enqueue a media message — should NOT start _process_loop yet
-        await scheduler.enqueue(1, "src_a", "<sender>A</sender>look {{media:id1}}", reply_fn, parsed_message=pm)
-        # Enqueue a plain text message — should start processing immediately
-        await scheduler.enqueue(1, "src_b", "plain hello", reply_fn)
+        # Enqueue a media message — should enqueue immediately with downloading placeholder
+        await scheduler.enqueue(1, "src_a", f'<sender>A</sender>look {tag}', reply_fn, parsed_message=pm)
 
-        # Wait for the plain message to be processed
+        # Wait for the first reply (placeholder message processed)
         for _ in range(100):
             if replies:
                 break
             await asyncio.sleep(0.01)
-
-        # Plain message was processed while media is still pending
         assert replies == ["response"]
-        assert media_started.is_set()
 
-        # Now release the media task
+        # Release the media task and wait for the resolved message to be enqueued and processed
         media_gate.set()
         for _ in range(100):
             if len(replies) >= 2:
@@ -109,19 +100,22 @@ async def test_enqueue_with_media_does_not_block_queue():
 
 
 @pytest.mark.anyio
-async def test_resolve_then_enqueue_puts_resolved_msg():
-    """_resolve_then_enqueue should resolve media and enqueue the final message."""
+async def test_resolve_media_and_enqueue_puts_resolved_msg():
+    """_resolve_media_and_enqueue should resolve media and enqueue a follow-up message."""
     task = AsyncMock(return_value='<image>a cat</image>')()
+    tag = '<image status="downloading" filename="cat.jpg" />'
     pm = ParsedMessage(
-        text="see {{media:id1}}",
-        media_tasks=[MediaTask(placeholder_id="id1", task=task, media_type="image")],
+        text=f'see {tag}',
+        media_tasks=[MediaTask(placeholder_id="id1", task=task, media_type="image",
+                               filename="cat.jpg", placeholder_tag=tag)],
     )
 
     with patch.object(scheduler.agent, "load_settings", return_value={"media": {"timeout": 60}}):
-        await scheduler._resolve_then_enqueue(1, "src_a", "<sender>A</sender>see {{media:id1}}", AsyncMock(), pm)
+        await scheduler._resolve_media_and_enqueue(1, "src_a", AsyncMock(), pm)
 
     assert not scheduler._queue.empty()
     item = scheduler._queue.get_nowait()
-    # item is (priority, counter, source_key, msg, reply_fn, None)
-    assert "see <image>a cat</image>" in item[3]
-    assert item[5] is None  # no more pending media
+    msg = item[3]
+    assert "<media-resolved>" in msg
+    assert "cat.jpg" in msg
+    assert "<image>a cat</image>" in msg

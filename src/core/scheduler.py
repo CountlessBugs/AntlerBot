@@ -51,28 +51,35 @@ async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
 
 async def enqueue(priority: int, source_key: str, msg: str, reply_fn,
                   parsed_message: ParsedMessage | None = None) -> None:
+    # Always enqueue immediately — media placeholders are already visible as
+    # <tag status="downloading" id="..." /> in the message text.
+    await _enqueue_ready(priority, source_key, msg, reply_fn)
     if parsed_message and parsed_message.media_tasks:
         asyncio.create_task(
-            _resolve_then_enqueue(priority, source_key, msg, reply_fn, parsed_message)
+            _resolve_media_and_enqueue(priority, source_key, reply_fn, parsed_message)
         )
-        return
-    await _enqueue_ready(priority, source_key, msg, reply_fn)
 
 
-async def _resolve_then_enqueue(
-    priority: int, source_key: str, msg: str, reply_fn,
+async def _resolve_media_and_enqueue(
+    priority: int,
+    source_key: str,
+    reply_fn,
     parsed_message: ParsedMessage,
 ) -> None:
-    """Await media tasks in the background, then enqueue the resolved message."""
+    """Resolve media in the background, then enqueue resolved content to trigger a reply."""
     settings = agent.load_settings()
     timeout = settings.get("media", {}).get("timeout", 60)
-    try:
-        resolved_text = await _resolve_media(parsed_message, timeout)
-        resolved_msg = msg.replace(parsed_message.text, resolved_text, 1)
-    except Exception:
-        logger.exception("Failed to resolve media for source=%s", source_key)
-        resolved_msg = msg
-    await _enqueue_ready(priority, source_key, resolved_msg, reply_fn)
+    results = await _resolve_media_tasks(parsed_message, timeout)
+    if not results:
+        return
+    parts: list[str] = []
+    for mt in parsed_message.media_tasks:
+        if mt.placeholder_id in results:
+            label = mt.filename or mt.media_type
+            parts.append(f'{label}: {results[mt.placeholder_id]}')
+    if parts:
+        notice = "<media-resolved>\n" + "\n".join(parts) + "\n</media-resolved>"
+        await _enqueue_ready(priority, source_key, notice, reply_fn)
 
 
 async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn) -> None:
@@ -145,11 +152,8 @@ async def _on_session_clear() -> None:
     await contact_cache.refresh_all()
 
 
-async def _resolve_media(pm: ParsedMessage, timeout: float) -> str:
-    """Await all media tasks and replace placeholders."""
-    if not pm.media_tasks:
-        return pm.text
-
+async def _resolve_media_tasks(pm: ParsedMessage, timeout: float) -> dict[str, str]:
+    """Await all media tasks and return {placeholder_id: result} mapping."""
     results: dict[str, str] = {}
     for mt in pm.media_tasks:
         tag = _MEDIA_TAG.get(mt.media_type, mt.media_type)
@@ -161,5 +165,4 @@ async def _resolve_media(pm: ParsedMessage, timeout: float) -> str:
             results[mt.placeholder_id] = f'<{tag} error="处理超时" />'
         except Exception:
             results[mt.placeholder_id] = f'<{tag} error="处理失败" />'
-
-    return pm.resolve(results)
+    return results
