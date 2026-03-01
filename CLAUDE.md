@@ -21,17 +21,29 @@ src/
   core/
     agent.py                   # LangGraph workflow, LLM init, shared history, load_prompt(), load_settings(), auto-summarization
     message_handler.py         # NcatBot callbacks, format_message, intercepts private /commands, enqueues to scheduler
+    message_parser.py          # structured message parsing: Text/At/Face/Reply/media segments → XML tags
+    media_processor.py         # media download, ffmpeg trim, LLM transcription, base64 passthrough
     scheduler.py               # centralized queue, priority batching, sole caller of agent; session timeout via APScheduler
     scheduled_tasks.py         # APScheduler jobs, task CRUD tools, startup recovery
     commands.py                # command registry, permission checks, command handlers
+    contact_cache.py           # QQ contact info cache
+  data/
+    face_map.py                # QQ face emoji ID → name mapping
 config/
   agent/
     prompt.txt.example         # copy to prompt.txt to set system prompt
-    settings.yaml              # auto-summarization settings (context_limit_tokens, session_timeout_minutes, etc.)
+    settings.yaml              # runtime settings (context limits, timeouts, media processing, etc.)
   permissions.yaml             # 3-tier permissions: developer/admin QQ UID lists (auto-created if missing)
 tests/
   test_agent.py
   test_message_handler.py
+  test_message_parser.py
+  test_media_processor.py
+  test_scheduler.py
+  test_scheduler_media.py
+  test_scheduled_tasks.py
+  test_commands.py
+  test_contact_cache.py
 ```
 
 # Current State
@@ -41,7 +53,9 @@ Core features implemented:
 - Formats messages with sender info, enqueues to `scheduler.py` with priority batching (current source first)
 - All sources share one conversation history
 - LLM initialized via `init_chat_model(LLM_MODEL, model_provider=LLM_PROVIDER)`
-- `scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`; manages session timeout via APScheduler (`init_timeout`, `enqueue` reschedules `session_summarize` job)
+- `message_parser.py` parses QQ MessageArray segments (Text, At, Face, Reply, media) into LLM-readable XML tags; Reply parsing is async (requires API call)
+- `media_processor.py` handles media download, ffmpeg trim, base64 passthrough (≤ threshold) and LLM transcription (> threshold); supports separate transcription model via `TRANSCRIPTION_*` env vars
+- `scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`; manages session timeout via APScheduler (`init_timeout`, `enqueue` reschedules `session_summarize` job); builds multimodal content lists from parsed messages
 - `scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
 - Auto-summarization: `agent.py` summarizes history when `input_tokens > context_limit_tokens`; session timeout triggers `summarize_all` then `clear_history()`
 - `load_settings()` reads `config/agent/settings.yaml` at routing time (no restart needed for changes)
@@ -52,6 +66,8 @@ Core features implemented:
 Copy `.env.example` → `.env` and `config/agent/prompt.txt.example` → `config/agent/prompt.txt`.
 
 Key env vars: `LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`.
+
+Optional transcription env vars: `TRANSCRIPTION_PROVIDER`, `TRANSCRIPTION_MODEL`, `TRANSCRIPTION_API_KEY`, `TRANSCRIPTION_BASE_URL` (fall back to main LLM vars if unset).
 
 Non-OpenAI providers require their langchain package (e.g. `langchain-anthropic`). A friendly error message guides installation if missing.
 
