@@ -1,23 +1,26 @@
-context_limit_tokens: 8000
+context_limit_tokens: 32000
 timeout_summarize_seconds: 1800
 timeout_clear_seconds: 3600
-reply_max_length: 50
+
+# 被引用消息的最大长度，超过该长度被截断
+reply_quote_truncate_length: 50
 
 media:
-  timeout: 60
+  timeout: 180
   
-  # Files at or below this threshold are processed inline before sending to LLM.
-  # Files above this threshold (or with unknown size) use the two-phase placeholder flow.
-  # Set to 0 to always use placeholder flow.
+  # 小于此大小 (MB) 的文件会被同步处理，期间 Agent 无法接收其他消息
+  # 大于此大小的文件会分为两阶段异步处理，先发送一个占位符
+  # 下载并处理完成后再将文件发送给 Agent，期间不会阻塞其他消息
+  # 设为 0 可禁用同步处理
   sync_process_threshold_mb: 1
 
-  # Files exceeding this size are skipped entirely (not processed or sent to LLM).
-  # Omit or leave unset for no limit.
+  # 超过此大小 (MB) 的文件将不会被处理，用占位符代替
+  # 留空则取消限制
   max_file_size_mb: 20
 
-  # When enabled, files at or below transcribe_threshold_mb are sent as raw base64
-  # (passthrough). Files above the threshold are transcribed by a separate LLM call.
-  # Set to 0 to always transcribe. Omit or leave unset to always passthrough.
+  # 小于等于此大小 (MB) 的文件将会以 Base64 格式直传给 Agent
+  # 大于此大小的文件将被转录为文本后发送给 Agent
+  # 设为 0 则总是进行转录；留空则总是直传
   transcribe_threshold_mb: 1
 
   image:
@@ -26,12 +29,19 @@ media:
   audio:
     enabled: false
     max_duration: 60
+    
+    # 音频长度超过 max_duration 时是否进行裁剪
+    # 为 true 则从开头截取至 max_duration，为 false 则直接替换为占位符
+    # 需要安装 ffmpeg，若未安装则等同于 false
     trim_over_limit: true
 
   video:
     enabled: false
     max_duration: 30
+
+    # 同上
     trim_over_limit: true
 
+  # 除图片、音频、视频之外的文件均被视为 document
   document:
     enabled: false

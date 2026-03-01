@@ -25,16 +25,19 @@ SETTINGS_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "config", "agent", "settings.yaml")
 )
 _SETTINGS_DEFAULTS = {
-    "context_limit_tokens": 8000,
+    "context_limit_tokens": 32000,
     "timeout_summarize_seconds": 1800,
     "timeout_clear_seconds": 3600,
-    "reply_max_length": 50,
+    "reply_quote_truncate_length": 50,
     "media": {
-        "timeout": 60,
-        "image": {"transcribe": False, "passthrough": False},
-        "audio": {"transcribe": False, "passthrough": False, "max_duration": 60, "trim_over_limit": True},
-        "video": {"transcribe": False, "passthrough": False, "max_duration": 30, "trim_over_limit": True},
-        "document": {"transcribe": False, "passthrough": False},
+        "timeout": 180,
+        "sync_process_threshold_mb": 1,
+        "max_file_size_mb": 20,
+        "transcribe_threshold_mb": 1,
+        "image": {"enabled": False},
+        "audio": {"enabled": False, "max_duration": 60, "trim_over_limit": True},
+        "video": {"enabled": False, "max_duration": 30, "trim_over_limit": True},
+        "document": {"enabled": False},
     },
 }
 

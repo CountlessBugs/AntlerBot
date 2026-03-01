@@ -30,7 +30,7 @@ Segment handling:
 - `Text` → append `seg.text` directly
 - `At` → look up `contact_cache.get_remark(user_id)`, fall back to nickname; AtAll → `@全体成员`
 - `Face` → look up `FACE_MAP[int(seg.id)]`; if found render as `<face name="..." />`, if not found render as `<face />`
-- `Reply` → call `status.global_api.get_msg(seg.id)` to fetch original message, truncate to `reply_max_length`, wrap in `<reply_to>...</reply_to>`; on failure → `<reply_to>无法获取原消息</reply_to>`
+- `Reply` → call `status.global_api.get_msg(seg.id)` to fetch original message, truncate to `reply_quote_truncate_length`, wrap in `<reply_to>...</reply_to>`; on failure → `<reply_to>无法获取原消息</reply_to>`
 - `Image` → `<image />`
 - `Record` → `<audio />`
 - `Video` → `<video />`
@@ -40,13 +40,13 @@ Segment handling:
 Files:
 - NEW `src/core/message_parser.py`
 
-### Step 3: Add reply_max_length to settings.yaml
+### Step 3: Add reply_quote_truncate_length to settings.yaml
 
-Add `reply_max_length: 50` as a top-level setting in `config/agent/settings.yaml`. Update `_SETTINGS_DEFAULTS` in `agent.py` to include the new default.
+Add `reply_quote_truncate_length: 50` as a top-level setting in `config/agent/settings.yaml`. Update `_SETTINGS_DEFAULTS` in `agent.py` to include the new default.
 
 Files:
 - EDIT `config/agent/settings.yaml`
-- EDIT `src/core/agent.py` — add `reply_max_length` to `_SETTINGS_DEFAULTS`
+- EDIT `src/core/agent.py` — add `reply_quote_truncate_length` to `_SETTINGS_DEFAULTS`
 
 ### Step 4: Update message_handler.py to use message_parser
 

@@ -54,7 +54,7 @@ Parse Text, At, Face, and Reply segments into readable text with XML tags. No me
 <face name="微笑" />
 ```
 
-**Reply**: Call NcatBot API with `message_id` to fetch the original message content. Truncate to `reply_max_length` characters (default 50, configurable). On API failure: `<reply_to>无法获取原消息</reply_to>`.
+**Reply**: Call NcatBot API with `message_id` to fetch the original message content. Truncate to `reply_quote_truncate_length` characters (default 50, configurable). On API failure: `<reply_to>无法获取原消息</reply_to>`.
 ```
 <reply_to>被引用消息内容前50字...</reply_to>
 ```
@@ -69,7 +69,7 @@ Parse Text, At, Face, and Reply segments into readable text with XML tags. No me
 - New `src/core/message_parser.py`: `parse_message(message_array, settings) -> str`
 - `format_message()`: Accept parsed string instead of raw_message
 - New `src/data/face_map.py`: Built-in face_id → name mapping dict
-- `settings.yaml`: Add `reply_max_length` (default 50)
+- `settings.yaml`: Add `reply_quote_truncate_length` (default 50)
 
 ## Phase 2: Media Transcription
 
@@ -186,7 +186,7 @@ If both `transcribe` and `passthrough` are true, `transcribe` takes precedence.
 
 ```yaml
 # Reply truncation (top-level)
-reply_max_length: 50
+reply_quote_truncate_length: 50
 
 media:
   # Transcription model (empty = reuse main LLM)

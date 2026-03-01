@@ -4,7 +4,7 @@ Phase 1 of structured message parsing: replaced `raw_message` string with `Messa
 
 ## Deviations from Plan
 
-- `reply_max_length` moved from `media.reply_max_length` (nested) to top-level in `settings.yaml` and `_SETTINGS_DEFAULTS` — reply truncation is not a media feature.
+- `reply_quote_truncate_length` moved from `media.reply_quote_truncate_length` (nested) to top-level in `settings.yaml` and `_SETTINGS_DEFAULTS` — reply truncation is not a media feature.
 - `_MEDIA_PLACEHOLDERS` dict retained but lookup changed from `type(seg) in dict` to `isinstance`-based iteration, to stay compatible with `MagicMock(spec=cls)` in tests while keeping the dict as the single source of truth for Phase 2 extension.
 
 ## Key Decisions

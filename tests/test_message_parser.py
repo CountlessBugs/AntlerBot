@@ -14,7 +14,7 @@ def reset_cache():
     contact_cache._groups = {}
 
 
-DEFAULT_SETTINGS = {"reply_max_length": 50}
+DEFAULT_SETTINGS = {"reply_quote_truncate_length": 50}
 
 
 def _make_seg(cls_name, **attrs):

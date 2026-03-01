@@ -90,7 +90,7 @@ def _parse_reply_segment(seg) -> str:
 
 
 async def _parse_reply(seg, settings: dict) -> str:
-    max_len = settings.get("reply_max_length", 50)
+    max_len = settings.get("reply_quote_truncate_length", 50)
     try:
         from ncatbot.utils import status
         evt = await status.global_api.get_msg(seg.id)

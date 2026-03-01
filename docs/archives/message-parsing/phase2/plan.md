@@ -143,7 +143,7 @@ _SETTINGS_DEFAULTS = {
     "context_limit_tokens": 8000,
     "timeout_summarize_seconds": 1800,
     "timeout_clear_seconds": 3600,
-    "reply_max_length": 50,
+    "reply_quote_truncate_length": 50,
     "media": {
         "transcription_model": "",
         "transcription_provider": "",

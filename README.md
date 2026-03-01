@@ -62,7 +62,7 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `context_limit_tokens` | 上下文窗口限制，超过时触发自动摘要 |
 | `timeout_summarize_seconds` | 无消息多少秒后触发会话摘要 |
 | `timeout_clear_seconds` | 会话摘要后多少秒清空历史 |
-| `reply_max_length` | 回复消息引用的最大截断长度 |
+| `reply_quote_truncate_length` | 回复消息引用的最大截断长度 |
 | `media.timeout` | 媒体处理超时时间（秒） |
 | `media.max_file_size_mb` | 超过此大小的文件直接跳过 |
 | `media.transcribe_threshold_mb` | 直传/转录分界阈值（设为 0 始终转录，不设始终直传） |
@@ -122,7 +122,7 @@ admin:
 | 文本 | 直接输出文本内容 |
 | @ | 解析为 `<at>` 标签 |
 | 表情 | 解析为 `<face>` 标签 |
-| 回复 | 异步获取原消息内容，解析为 `<reply>` 标签（受 `reply_max_length` 截断） |
+| 回复 | 异步获取原消息内容，解析为 `<reply>` 标签（受 `reply_quote_truncate_length` 截断） |
 | 图片/音频/视频/文件 | 根据媒体配置进行处理 |
 
 ### 媒体处理
