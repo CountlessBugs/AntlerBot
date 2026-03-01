@@ -126,21 +126,11 @@ async def test_process_image_transcribe():
     seg.file_name = "cat.jpg"
     seg.get_file_name.return_value = "cat.jpg"
     seg.download = AsyncMock(return_value="/tmp/cat.jpg")
-    settings = {"media": {"image": {"transcribe": True}}}
+    settings = {"media": {"image": {}}}
     with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value="一只猫"), \
          patch("src.core.media_processor._cleanup_temp"):
         result = await process_media_segment(seg, "image", settings)
         assert result == '<image filename="cat.jpg">一只猫</image>'
-
-
-@pytest.mark.anyio
-async def test_process_image_disabled():
-    seg = MagicMock()
-    seg.file_name = "cat.jpg"
-    seg.get_file_name.return_value = "cat.jpg"
-    settings = {"media": {"image": {"transcribe": False}}}
-    result = await process_media_segment(seg, "image", settings)
-    assert result == '<image filename="cat.jpg" />'
 
 
 @pytest.mark.anyio
@@ -149,7 +139,7 @@ async def test_process_audio_transcribe_with_trim():
     seg.file_name = "voice.amr"
     seg.get_file_name.return_value = "voice.amr"
     seg.download = AsyncMock(return_value="/tmp/voice.amr")
-    settings = {"media": {"audio": {"transcribe": True, "max_duration": 60, "trim_over_limit": True}}}
+    settings = {"media": {"audio": {"max_duration": 60, "trim_over_limit": True}}}
     with patch("src.core.media_processor.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
          patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value="你好"), \
          patch("src.core.media_processor._cleanup_temp"):
@@ -163,7 +153,7 @@ async def test_process_download_failure():
     seg.file_name = "pic.jpg"
     seg.get_file_name.return_value = "pic.jpg"
     seg.download = AsyncMock(side_effect=Exception("network error"))
-    settings = {"media": {"image": {"transcribe": True}}}
+    settings = {"media": {"image": {}}}
     result = await process_media_segment(seg, "image", settings)
     assert result == '<image filename="pic.jpg" error="download_failed" />'
 
@@ -174,7 +164,7 @@ async def test_process_transcription_failure():
     seg.file_name = "pic.jpg"
     seg.get_file_name.return_value = "pic.jpg"
     seg.download = AsyncMock(return_value="/tmp/pic.jpg")
-    settings = {"media": {"image": {"transcribe": True}}}
+    settings = {"media": {"image": {}}}
     with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value=None), \
          patch("src.core.media_processor._cleanup_temp"):
         result = await process_media_segment(seg, "image", settings)
@@ -189,7 +179,7 @@ async def test_passthrough_image():
     seg.url = "https://example.com/cat.jpg"
     seg.get_file_name.return_value = "cat.jpg"
     seg.download = AsyncMock(return_value="/tmp/cat.jpg")
-    settings = {"media": {"image": {"passthrough": True}}}
+    settings = {"media": {"image": {}}}
     mock_file = MagicMock()
     mock_file.__enter__ = MagicMock(return_value=mock_file)
     mock_file.__exit__ = MagicMock(return_value=False)
@@ -203,20 +193,11 @@ async def test_passthrough_image():
 
 
 @pytest.mark.anyio
-async def test_passthrough_disabled():
-    seg = MagicMock()
-    seg.get_file_name.return_value = "cat.jpg"
-    settings = {"media": {"image": {"passthrough": False}}}
-    result = await passthrough_media_segment(seg, "image", settings)
-    assert result is None
-
-
-@pytest.mark.anyio
 async def test_passthrough_download_failure():
     seg = MagicMock()
     seg.get_file_name.return_value = "cat.jpg"
     seg.download = AsyncMock(side_effect=Exception("network error"))
-    settings = {"media": {"image": {"passthrough": True}}}
+    settings = {"media": {"image": {}}}
     result = await passthrough_media_segment(seg, "image", settings)
     assert result is None
 
@@ -227,7 +208,7 @@ async def test_passthrough_audio_with_trim():
     seg.url = "https://example.com/voice.amr"
     seg.get_file_name.return_value = "voice.amr"
     seg.download = AsyncMock(return_value="/tmp/voice.amr")
-    settings = {"media": {"audio": {"passthrough": True, "max_duration": 60}}}
+    settings = {"media": {"audio": {"max_duration": 60}}}
     mock_file = MagicMock()
     mock_file.__enter__ = MagicMock(return_value=mock_file)
     mock_file.__exit__ = MagicMock(return_value=False)

@@ -5,27 +5,33 @@ reply_max_length: 50
 
 media:
   timeout: 60
+  
   # Files at or below this threshold are processed inline before sending to LLM.
   # Files above this threshold (or with unknown size) use the two-phase placeholder flow.
   # Set to 0 to always use placeholder flow.
   sync_process_threshold_mb: 1
 
+  # Files exceeding this size are skipped entirely (not processed or sent to LLM).
+  # Omit or leave unset for no limit.
+  max_file_size_mb: 20
+
+  # When enabled, files at or below transcribe_threshold_mb are sent as raw base64
+  # (passthrough). Files above the threshold are transcribed by a separate LLM call.
+  # Set to 0 to always transcribe. Omit or leave unset to always passthrough.
+  transcribe_threshold_mb: 1
+
   image:
-    transcribe: false
-    passthrough: false
+    enabled: false
 
   audio:
-    transcribe: false
-    passthrough: false
+    enabled: false
     max_duration: 60
     trim_over_limit: true
 
   video:
-    transcribe: false
-    passthrough: false
+    enabled: false
     max_duration: 30
     trim_over_limit: true
 
   document:
-    transcribe: false
-    passthrough: false
+    enabled: false

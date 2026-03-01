@@ -237,10 +237,8 @@ _MIME_MAP = {
 
 async def passthrough_media_segment(seg, media_type: str, settings: dict, source: str = "") -> dict | None:
     """Download media, base64-encode, return a content_block dict for LLM input.
-    Returns None on failure or if disabled."""
+    Returns None on failure."""
     type_cfg = settings.get("media", {}).get(media_type, {})
-    if not type_cfg.get("passthrough", False):
-        return None
 
     path = await download_media(seg, source)
     if not path:
@@ -296,9 +294,6 @@ async def process_media_segment(seg, media_type: str, settings: dict, source: st
     filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
 
     fn_attr = f' filename="{filename}"' if filename else ""
-
-    if not type_cfg.get("transcribe", False):
-        return f"<{tag}{fn_attr} />"
 
     # Download
     path = await download_media(seg, source)

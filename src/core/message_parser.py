@@ -132,46 +132,43 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                 type_cfg = settings.get("media", {}).get(media_type, {})
                 tag = media_processor._MEDIA_TAG.get(media_type, media_type)
                 fn_attr = f' filename="{filename}"' if filename else ""
-                if type_cfg.get("transcribe", False):
-                    raw_size = getattr(seg, "file_size", None)
-                    file_size = int(raw_size) if raw_size is not None else None
-                    max_direct_mb = settings.get("media", {}).get("sync_process_threshold_mb")
-                    max_direct = max_direct_mb * 1024 * 1024 if max_direct_mb is not None else None
-                    is_small = (
-                        max_direct is not None
-                        and file_size is not None
-                        and file_size <= max_direct
-                    )
-                    if is_small:
-                        try:
-                            result = await media_processor.process_media_segment(
-                                seg, media_type, settings, source
-                            )
-                            parts.append(result)
-                        except Exception:
-                            logger.warning("Failed to process small media segment", exc_info=True)
-                            parts.append(f'<{tag} error="处理失败" />')
-                    else:
-                        pid = uuid.uuid4().hex[:12]
-                        placeholder = f'<{tag} status="loading"{fn_attr} />'
-                        parts.append(placeholder)
-                        task = asyncio.create_task(
-                            media_processor.process_media_segment(seg, media_type, settings, source)
+                raw_size = getattr(seg, "file_size", None)
+                file_size = int(raw_size) if raw_size is not None else None
+
+                # Skip processing entirely if file exceeds max_file_size_mb.
+                max_file_mb = settings.get("media", {}).get("max_file_size_mb")
+                if max_file_mb is not None and file_size is not None:
+                    if file_size > float(max_file_mb) * 1024 * 1024:
+                        logger.info(
+                            "File %s (%.1f MB) exceeds max_file_size_mb (%.1f MB), skipping",
+                            filename, file_size / 1024 / 1024, float(max_file_mb),
                         )
-                        media_tasks.append(MediaTask(
-                            placeholder_id=pid, task=task, media_type=media_type,
-                            filename=filename, placeholder_tag=placeholder,
-                        ))
-                elif type_cfg.get("passthrough", False):
-                    raw_size = getattr(seg, "file_size", None)
-                    file_size = int(raw_size) if raw_size is not None else None
-                    max_direct_mb = settings.get("media", {}).get("sync_process_threshold_mb")
-                    max_direct = max_direct_mb * 1024 * 1024 if max_direct_mb is not None else None
-                    is_small = (
-                        max_direct is not None
-                        and file_size is not None
-                        and file_size <= max_direct
-                    )
+                        parts.append(f'<{tag}{fn_attr} skipped="file_too_large" />')
+                        continue
+
+                if not type_cfg.get("enabled", False):
+                    parts.append(f"<{tag}{fn_attr} />")
+                    continue
+
+                # Determine mode: passthrough vs transcribe based on threshold.
+                threshold_mb = settings.get("media", {}).get("transcribe_threshold_mb")
+                use_passthrough = True
+                if threshold_mb is not None:
+                    threshold_bytes = float(threshold_mb) * 1024 * 1024
+                    if file_size is not None and file_size > threshold_bytes:
+                        use_passthrough = False
+                    elif file_size is None:
+                        use_passthrough = False
+
+                max_direct_mb = settings.get("media", {}).get("sync_process_threshold_mb")
+                max_direct = max_direct_mb * 1024 * 1024 if max_direct_mb is not None else None
+                is_small = (
+                    max_direct is not None
+                    and file_size is not None
+                    and file_size <= max_direct
+                )
+
+                if use_passthrough:
                     if is_small:
                         try:
                             block = await media_processor.passthrough_media_segment(
@@ -200,7 +197,26 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                             passthrough=True,
                         ))
                 else:
-                    parts.append(f"<{tag}{fn_attr} />")
+                    if is_small:
+                        try:
+                            result = await media_processor.process_media_segment(
+                                seg, media_type, settings, source
+                            )
+                            parts.append(result)
+                        except Exception:
+                            logger.warning("Failed to process small media segment", exc_info=True)
+                            parts.append(f'<{tag} error="处理失败" />')
+                    else:
+                        pid = uuid.uuid4().hex[:12]
+                        placeholder = f'<{tag} status="loading"{fn_attr} />'
+                        parts.append(placeholder)
+                        task = asyncio.create_task(
+                            media_processor.process_media_segment(seg, media_type, settings, source)
+                        )
+                        media_tasks.append(MediaTask(
+                            placeholder_id=pid, task=task, media_type=media_type,
+                            filename=filename, placeholder_tag=placeholder,
+                        ))
             else:
                 try:
                     summary = seg.get_summary()

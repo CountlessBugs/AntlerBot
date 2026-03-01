@@ -273,7 +273,9 @@ async def test_parse_returns_parsed_message():
 
 @pytest.mark.anyio
 async def test_parse_image_transcribe_creates_task():
-    settings = {**DEFAULT_SETTINGS, "media": {"image": {"transcribe": True}, "timeout": 60}}
+    settings = {**DEFAULT_SETTINGS, "media": {
+        "image": {"enabled": True}, "timeout": 60, "transcribe_threshold_mb": 0,
+    }}
     seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg")
     seg.get_file_name = MagicMock(return_value="pic.jpg")
     msg = [seg]
@@ -288,7 +290,7 @@ async def test_parse_image_transcribe_creates_task():
 
 @pytest.mark.anyio
 async def test_parse_image_no_transcribe_placeholder():
-    settings = {**DEFAULT_SETTINGS, "media": {"image": {"transcribe": False}}}
+    settings = {**DEFAULT_SETTINGS, "media": {"image": {"enabled": False}}}
     msg = [_make_seg("Image", file="pic.jpg")]
     result = await parse_message(msg, settings)
     assert isinstance(result, ParsedMessage)
@@ -302,7 +304,8 @@ async def test_parse_image_no_transcribe_placeholder():
 async def test_small_file_direct_wait():
     """Small file (file_size <= max_direct_size) should be awaited inline, no MediaTask."""
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+        "image": {"enabled": True}, "timeout": 60,
+        "sync_process_threshold_mb": 1, "transcribe_threshold_mb": 0,
     }}
     msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)]
     with patch("src.core.message_parser.media_processor") as mock_mp:
@@ -318,7 +321,8 @@ async def test_small_file_direct_wait():
 async def test_large_file_uses_placeholder():
     """Large file (file_size > max_direct_size) should use placeholder + MediaTask."""
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+        "image": {"enabled": True}, "timeout": 60,
+        "sync_process_threshold_mb": 1, "transcribe_threshold_mb": 0,
     }}
     msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=5_000_000)]
     with patch("src.core.message_parser.media_processor") as mock_mp:
@@ -333,7 +337,8 @@ async def test_large_file_uses_placeholder():
 async def test_unknown_file_size_uses_placeholder():
     """file_size=None should be treated as large file (placeholder flow)."""
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+        "image": {"enabled": True}, "timeout": 60,
+        "sync_process_threshold_mb": 1, "transcribe_threshold_mb": 0,
     }}
     msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=None)]
     with patch("src.core.message_parser.media_processor") as mock_mp:
@@ -348,7 +353,8 @@ async def test_unknown_file_size_uses_placeholder():
 async def test_small_file_processing_failure():
     """Small file that fails processing should produce an error tag inline."""
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": True}, "timeout": 60, "sync_process_threshold_mb": 1,
+        "image": {"enabled": True}, "timeout": 60,
+        "sync_process_threshold_mb": 1, "transcribe_threshold_mb": 0,
     }}
     msg = [_make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)]
     with patch("src.core.message_parser.media_processor") as mock_mp:
@@ -364,7 +370,7 @@ async def test_small_file_processing_failure():
 @pytest.mark.anyio
 async def test_parse_image_passthrough_creates_content_block():
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": False, "passthrough": True},
+        "image": {"enabled": True},
         "timeout": 60, "sync_process_threshold_mb": 1,
     }}
     seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)
@@ -383,10 +389,10 @@ async def test_parse_image_passthrough_creates_content_block():
 
 @pytest.mark.anyio
 async def test_parse_image_transcribe_overrides_passthrough():
-    """transcribe=true takes priority over passthrough=true."""
+    """File exceeding transcribe_threshold_mb should use transcription instead of passthrough."""
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": True, "passthrough": True},
-        "timeout": 60, "sync_process_threshold_mb": 1,
+        "image": {"enabled": True},
+        "timeout": 60, "sync_process_threshold_mb": 1, "transcribe_threshold_mb": 0.4,
     }}
     seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)
     seg.get_file_name = MagicMock(return_value="pic.jpg")
@@ -403,7 +409,7 @@ async def test_parse_image_transcribe_overrides_passthrough():
 async def test_large_file_passthrough_creates_media_task():
     """Large passthrough file uses placeholder + async MediaTask."""
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": False, "passthrough": True},
+        "image": {"enabled": True},
         "timeout": 60, "sync_process_threshold_mb": 1,
     }}
     seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=5_000_000)
@@ -425,7 +431,7 @@ async def test_large_file_passthrough_creates_media_task():
 @pytest.mark.anyio
 async def test_parse_passthrough_failure_falls_back_to_placeholder():
     settings = {**DEFAULT_SETTINGS, "media": {
-        "image": {"transcribe": False, "passthrough": True},
+        "image": {"enabled": True},
         "timeout": 60, "sync_process_threshold_mb": 1,
     }}
     seg = _make_seg("Image", file="pic.jpg", file_name="pic.jpg", file_size=500_000)
