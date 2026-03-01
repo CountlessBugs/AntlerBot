@@ -162,10 +162,18 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
 
                 max_direct_mb = settings.get("media", {}).get("sync_process_threshold_mb")
                 max_direct = max_direct_mb * 1024 * 1024 if max_direct_mb is not None else None
+                # Audio/video with max_duration may trigger ffmpeg trimming which
+                # blocks parse_message() long enough for later messages to be
+                # enqueued first, breaking reply ordering.  Force async flow.
+                may_trim = (
+                    media_type in ("audio", "video")
+                    and type_cfg.get("max_duration", 0) > 0
+                )
                 is_small = (
                     max_direct is not None
                     and file_size is not None
                     and file_size <= max_direct
+                    and not may_trim
                 )
 
                 if use_passthrough:
