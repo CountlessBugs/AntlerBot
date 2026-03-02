@@ -59,7 +59,6 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 
 | 字段 | 说明 |
 |------|------|
-| `temperature` | LLM 温度参数（0~2），值越高回复越随机 |
 | `context_limit_tokens` | 上下文窗口限制，超过时触发自动摘要 |
 | `timeout_summarize_seconds` | 无消息多少秒后触发会话摘要 |
 | `timeout_clear_seconds` | 会话摘要后多少秒清空历史 |

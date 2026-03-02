@@ -352,6 +352,24 @@ async def test_reload_invalid_arg():
     assert "用法" in api.post_private_msg.call_args[1]["text"]
 
 @pytest.mark.anyio
+async def test_reload_env():
+    yaml_content = "admin:\n  - 111\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 111
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         patch("src.core.commands.agent") as mock_agent, \
+         patch("src.core.commands.media_processor") as mock_mp, \
+         patch("src.core.commands.load_dotenv") as mock_load_dotenv:
+        mock_agent._graph = "something"
+        await commands.handle_command("111", "/reload env", api, event)
+        assert mock_agent._graph is None
+        mock_mp.reset_transcription_llm.assert_called_once()
+        mock_load_dotenv.assert_called_once_with(override=True)
+        assert "环境变量已重载" in api.post_private_msg.call_args[1]["text"]
+
+@pytest.mark.anyio
 async def test_reload_config():
     yaml_content = "admin:\n  - 111\n"
     api = AsyncMock()
@@ -377,6 +395,27 @@ async def test_reload_contact():
         mock_cc.refresh_all = AsyncMock()
         await commands.handle_command("111", "/reload contact", api, event)
     mock_cc.refresh_all.assert_called_once()
+
+@pytest.mark.anyio
+async def test_reload_no_args():
+    yaml_content = "admin:\n  - 111\n"
+    api = AsyncMock()
+    event = AsyncMock()
+    event.user_id = 111
+    with patch("builtins.open", mock_open(read_data=yaml_content)), \
+         patch("os.path.exists", return_value=True), \
+         patch("src.core.commands.agent") as mock_agent, \
+         patch("src.core.commands.media_processor") as mock_mp, \
+         patch("src.core.commands.contact_cache") as mock_cc, \
+         patch("src.core.commands.load_dotenv") as mock_load_dotenv:
+        mock_agent._graph = "something"
+        mock_cc.refresh_all = AsyncMock()
+        await commands.handle_command("111", "/reload", api, event)
+        assert mock_agent._graph is None
+        mock_mp.reset_transcription_llm.assert_called_once()
+        mock_load_dotenv.assert_called_once_with(override=True)
+        mock_cc.refresh_all.assert_called_once()
+        assert "环境变量、配置和联系人缓存已重载" in api.post_private_msg.call_args[1]["text"]
 
 
 # --- /summarize ---

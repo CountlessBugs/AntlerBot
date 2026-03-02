@@ -5,8 +5,9 @@ import tempfile
 from datetime import datetime
 
 import yaml
+from dotenv import load_dotenv
 
-from src.core import agent, scheduler, scheduled_tasks, contact_cache
+from src.core import agent, scheduler, scheduled_tasks, contact_cache, media_processor
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,12 @@ def load_permissions() -> dict[str, int]:
 
 def get_role(user_id: str) -> int:
     return load_permissions().get(user_id, ROLE_USER)
+
+
+def reload_env() -> None:
+    """Reload environment variables from .env file."""
+    load_dotenv(override=True)
+    logger.info("Environment variables reloaded from .env")
 
 
 # Registry: name → (min_role, handler, description, usage)
@@ -222,21 +229,28 @@ async def _cmd_log(user_id, args, bot_api, event):
 
 # --- Admin commands ---
 
-@_register("reload", ROLE_ADMIN, "重载配置和联系人缓存", "/reload [config|contact]")
+@_register("reload", ROLE_ADMIN, "重载配置和联系人缓存", "/reload [env|config|contact]")
 async def _cmd_reload(user_id, args, bot_api, event):
     target = args.strip()
-    if target == "config":
+    if target == "env":
+        reload_env()
+        agent._graph = None
+        media_processor.reset_transcription_llm()
+        await bot_api.post_private_msg(user_id=event.user_id, text="环境变量已重载")
+    elif target == "config":
         agent._graph = None
         await bot_api.post_private_msg(user_id=event.user_id, text="配置已重载")
     elif target == "contact":
         await contact_cache.refresh_all()
         await bot_api.post_private_msg(user_id=event.user_id, text="联系人缓存已刷新")
     elif target == "":
+        reload_env()
         agent._graph = None
+        media_processor.reset_transcription_llm()
         await contact_cache.refresh_all()
-        await bot_api.post_private_msg(user_id=event.user_id, text="配置和联系人缓存已重载")
+        await bot_api.post_private_msg(user_id=event.user_id, text="环境变量、配置和联系人缓存已重载")
     else:
-        await bot_api.post_private_msg(user_id=event.user_id, text="用法: /reload [config|contact]")
+        await bot_api.post_private_msg(user_id=event.user_id, text="用法: /reload [env|config|contact]")
 
 
 @_register("summarize", ROLE_ADMIN, "总结当前上下文")

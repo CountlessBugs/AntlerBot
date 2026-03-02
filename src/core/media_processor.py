@@ -140,6 +140,13 @@ async def trim_media(path: str, max_duration: int) -> str | None:
 
 _transcription_llm = None
 
+
+def reset_transcription_llm() -> None:
+    """Reset the transcription LLM instance to force reinitialization."""
+    global _transcription_llm
+    _transcription_llm = None
+
+
 _TRANSCRIPTION_SYSTEM = (
     "你是一个媒体转述助手，你的唯一任务是客观描述或转述用户提供的媒体内容。"
     "严格遵守以下规则：\n"
