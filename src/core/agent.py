@@ -25,6 +25,7 @@ SETTINGS_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "config", "agent", "settings.yaml")
 )
 _SETTINGS_DEFAULTS = {
+    "temperature": 1.0,
     "context_limit_tokens": 32000,
     "timeout_summarize_seconds": 1800,
     "timeout_clear_seconds": 3600,
@@ -130,8 +131,9 @@ def _ensure_initialized():
         if not os.environ.get(var):
             raise RuntimeError(f"{var} is not set. Copy .env.example to .env and configure it.")
     provider = os.environ["LLM_PROVIDER"]
+    temperature = load_settings().get("temperature", 1.0)
     try:
-        _llm = init_chat_model(os.environ["LLM_MODEL"], model_provider=provider)
+        _llm = init_chat_model(os.environ["LLM_MODEL"], model_provider=provider, temperature=temperature)
     except ImportError:
         pkg = _PROVIDER_PACKAGES.get(provider, f"langchain-{provider}")
         raise ImportError(

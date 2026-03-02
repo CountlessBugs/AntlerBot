@@ -79,3 +79,11 @@ To add a dependency:
 1. Add it to `requirements.in`
 2. Run: `pip-compile --index-url=https://mirrors.aliyun.com/pypi/simple/ --output-file=requirements.txt requirements.in`
 3. Run: `pip install -r requirements.txt`
+
+# Adding Configuration Items
+
+When adding new configuration items to `settings.yaml`, update all three locations:
+1. `config/agent/settings.yaml` - add the config item with appropriate value
+2. `config/agent/settings.yaml.example` - add the config item with default value and comment
+3. `README.md` - add documentation in the settings table (around line 60)
+4. `src/core/agent.py` - add default value to `_SETTINGS_DEFAULTS` dict

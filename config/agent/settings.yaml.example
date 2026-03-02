@@ -1,3 +1,4 @@
+temperature: 1.0
 context_limit_tokens: 32000
 timeout_summarize_seconds: 1800
 timeout_clear_seconds: 3600
