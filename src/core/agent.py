@@ -277,6 +277,8 @@ async def _invoke(
             initial = list(_history)
         elif reason == "complex_reschedule":
             initial = list(messages)
+        elif reason == "scheduled_task":
+            initial = _history + [SystemMessage(message)]
         else:
             initial = _history + [HumanMessage(message)]
 

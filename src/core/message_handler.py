@@ -46,6 +46,7 @@ def register(bot) -> None:
             msg,
             lambda text: bot.api.post_group_msg(e.group_id, text=text),
             parsed_message=parsed,
+            reason="user_message",
         )
 
     @bot.on_private_message()
@@ -64,4 +65,5 @@ def register(bot) -> None:
             msg,
             lambda text: bot.api.post_private_msg(e.user_id, text=text),
             parsed_message=parsed,
+            reason="user_message",
         )

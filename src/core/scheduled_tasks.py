@@ -197,7 +197,7 @@ async def _on_trigger(task_id: str) -> None:
             if any(t["task_id"] == task_id for t in current):
                 await _reschedule(task)
 
-    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn)
+    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn, reason="scheduled_task")
 
 
 # --- Rescheduling ---

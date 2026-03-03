@@ -28,17 +28,18 @@ def get_current_source() -> dict | None:
     return {"type": type_, "id": id_}
 
 
-def _batch(items: list) -> list[tuple[str, list[str], list, list]]:
-    groups: dict[str, tuple[list, list, list]] = {}
+def _batch(items: list) -> list[tuple[str, list[str], list, list, str]]:
+    groups: dict[str, tuple[str, list, list, list, str]] = {}
     order: list[str] = []
-    for _, _, source_key, msg, reply_fn, parsed_msg in items:
-        if source_key not in groups:
-            groups[source_key] = ([], [], [])
-            order.append(source_key)
-        groups[source_key][0].append(msg)
-        groups[source_key][1].append(reply_fn)
-        groups[source_key][2].append(parsed_msg)
-    return [(k, groups[k][0], groups[k][1], groups[k][2]) for k in order]
+    for _, _, source_key, msg, reply_fn, parsed_msg, reason in items:
+        batch_key = f"{source_key}:{reason}"
+        if batch_key not in groups:
+            groups[batch_key] = (source_key, [], [], [], reason)
+            order.append(batch_key)
+        groups[batch_key][1].append(msg)
+        groups[batch_key][2].append(reply_fn)
+        groups[batch_key][3].append(parsed_msg)
+    return [(groups[k][0], groups[k][1], groups[k][2], groups[k][3], groups[k][4]) for k in order]
 
 
 def init_timeout(apscheduler) -> None:
@@ -51,13 +52,13 @@ async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
 
 
 async def enqueue(priority: int, source_key: str, msg: str, reply_fn,
-                  parsed_message: ParsedMessage | None = None) -> None:
+                  parsed_message: ParsedMessage | None = None, reason: str = "user_message") -> None:
     if parsed_message and parsed_message.media_tasks:
         asyncio.create_task(
-            _resolve_media_and_enqueue(priority, source_key, msg, reply_fn, parsed_message)
+            _resolve_media_and_enqueue(priority, source_key, msg, reply_fn, parsed_message, reason)
         )
     else:
-        await _enqueue_ready(priority, source_key, msg, reply_fn, parsed_message)
+        await _enqueue_ready(priority, source_key, msg, reply_fn, parsed_message, reason)
 
 
 async def _resolve_media_and_enqueue(
@@ -66,10 +67,11 @@ async def _resolve_media_and_enqueue(
     msg: str,
     reply_fn,
     parsed_message: ParsedMessage,
+    reason: str = "user_message",
 ) -> None:
     """Enqueue the message with loading placeholders immediately, then enqueue resolved media as follow-up messages."""
     # 1. Enqueue immediately with loading placeholders intact (no media_tasks/content_blocks)
-    await _enqueue_ready(priority, source_key, msg, reply_fn)
+    await _enqueue_ready(priority, source_key, msg, reply_fn, None, reason)
 
     # 2. Resolve media in the background
     settings = agent.load_settings()
@@ -88,9 +90,9 @@ async def _resolve_media_and_enqueue(
             fn_attr = f' filename="{mt.filename}"' if mt.filename else ""
             follow_up_msg = f"<{tag}{fn_attr} />"
             follow_up_pm = ParsedMessage(text="", content_blocks=[result])
-            await _enqueue_ready(priority, source_key, follow_up_msg, reply_fn, parsed_message=follow_up_pm)
+            await _enqueue_ready(priority, source_key, follow_up_msg, reply_fn, parsed_message=follow_up_pm, reason=reason)
         elif isinstance(result, str):
-            await _enqueue_ready(priority, source_key, result, reply_fn)
+            await _enqueue_ready(priority, source_key, result, reply_fn, reason=reason)
 
 
 def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str | list:
@@ -104,12 +106,12 @@ def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str 
 
 
 async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn,
-                         parsed_message: ParsedMessage | None = None) -> None:
+                         parsed_message: ParsedMessage | None = None, reason: str = "user_message") -> None:
     """Enqueue a message that is ready to be processed (no pending media)."""
     global _processing, _counter
     async with _lock:
         _counter += 1
-        await _queue.put((priority, _counter, source_key, msg, reply_fn, parsed_message))
+        await _queue.put((priority, _counter, source_key, msg, reply_fn, parsed_message, reason))
         should_start = not _processing
         if should_start:
             _processing = True
@@ -132,7 +134,7 @@ async def _process_loop():
                 while not _queue.empty():
                     items.append(_queue.get_nowait())
             batches = _batch(items)
-            for source_key, msgs, reply_fns, parsed_msgs in batches:
+            for source_key, msgs, reply_fns, parsed_msgs, reason in batches:
                 _current_source = source_key
                 logger.info("processing | source=%s batch=%d", source_key, len(msgs))
                 combined_msg = "\n".join(msgs)
@@ -145,7 +147,7 @@ async def _process_loop():
                     content = [{"type": "text", "text": combined_msg}, *all_blocks]
                 else:
                     content = combined_msg
-                async for seg in agent._invoke("user_message", content):
+                async for seg in agent._invoke(reason, content):
                     await reply_fns[-1](seg)
             if _apscheduler is not None and agent.has_history():
                 settings = agent.load_settings()

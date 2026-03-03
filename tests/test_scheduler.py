@@ -22,12 +22,12 @@ def reset_scheduler_state():
 def test_batch_groups_by_source():
     fn = lambda r: None
     items = [
-        (1, 1, "src_a", "msg1", fn, None),
-        (1, 2, "src_b", "msg2", fn, None),
-        (1, 3, "src_a", "msg3", fn, None),
+        (1, 1, "src_a", "msg1", fn, None, "user_message"),
+        (1, 2, "src_b", "msg2", fn, None, "user_message"),
+        (1, 3, "src_a", "msg3", fn, None, "user_message"),
     ]
     batches = scheduler._batch(items)
-    assert len(batches[0]) == 4  # (source_key, msgs, reply_fns, parsed_msgs)
+    assert len(batches[0]) == 5  # (source_key, msgs, reply_fns, parsed_msgs, reason)
     src_a = next(b for b in batches if b[0] == "src_a")
     assert src_a[1] == ["msg1", "msg3"]
 
@@ -35,8 +35,8 @@ def test_batch_groups_by_source():
 def test_batch_priority_order():
     fn = lambda r: None
     items = [
-        (0, 1, "src_a", "msg_a", fn, None),
-        (1, 2, "src_b", "msg_b", fn, None),
+        (0, 1, "src_a", "msg_a", fn, None, "user_message"),
+        (1, 2, "src_b", "msg_b", fn, None, "user_message"),
     ]
     batches = scheduler._batch(items)
     assert batches[0][0] == "src_a"
@@ -44,7 +44,7 @@ def test_batch_priority_order():
 
 def test_batch_preserves_message_order():
     fn = lambda r: None
-    items = [(1, i, "src_a", m, fn, None) for i, m in enumerate(["first", "second", "third"])]
+    items = [(1, i, "src_a", m, fn, None, "user_message") for i, m in enumerate(["first", "second", "third"])]
     batches = scheduler._batch(items)
     assert batches[0][1] == ["first", "second", "third"]
 
@@ -55,7 +55,7 @@ def test_batch_empty():
 
 def test_batch_source_not_in_items_uses_arrival_order():
     fn = lambda r: None
-    items = [(1, 1, "src_b", "m1", fn, None), (1, 2, "src_c", "m2", fn, None)]
+    items = [(1, 1, "src_b", "m1", fn, None, "user_message"), (1, 2, "src_c", "m2", fn, None, "user_message")]
     batches = scheduler._batch(items)
     assert [b[0] for b in batches] == ["src_b", "src_c"]
 
@@ -71,7 +71,7 @@ async def test_process_loop_empty_queue_stops():
 async def test_process_loop_calls_invoke_and_reply():
     replies = []
     async def reply_fn(text): replies.append(text)
-    await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn, None))
+    await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn, None, "user_message"))
     scheduler._processing = True
     async def fake_invoke(*a, **kw):
         yield "response"
@@ -84,7 +84,7 @@ async def test_process_loop_calls_invoke_and_reply():
 @pytest.mark.anyio
 async def test_process_loop_exception_resets_processing():
     async def reply_fn(text): pass
-    await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn, None))
+    await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn, None, "user_message"))
     scheduler._processing = True
     async def fail_invoke(*a, **kw):
         raise RuntimeError("fail")
@@ -145,7 +145,7 @@ async def test_enqueue_logs_when_already_processing(caplog):
 async def test_process_loop_logs_processing(caplog):
     import logging
     async def reply_fn(text): pass
-    await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn, None))
+    await scheduler._queue.put((1, 1, "src_a", "hello", reply_fn, None, "user_message"))
     scheduler._processing = True
     async def fake_invoke(*a, **kw):
         yield "response"
