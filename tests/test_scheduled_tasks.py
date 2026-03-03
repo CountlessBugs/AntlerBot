@@ -271,10 +271,11 @@ async def test_recover_missed_once_removes_task(tmp_path):
     past = (datetime.now() - timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=past)]
     with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
-        mock_sched.invoke = AsyncMock(return_value="ok")
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
         result = await st._recover_missed(tasks)
     assert result == []
-    mock_sched.invoke.assert_called_once()
+    mock_sched.enqueue.assert_called_once()
 
 
 @pytest.mark.anyio
@@ -282,10 +283,10 @@ async def test_recover_missed_once_already_run_not_missed(tmp_path):
     past = (datetime.now() - timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=past, last_run=past)]
     with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
-        mock_sched.invoke = AsyncMock(return_value="ok")
+        mock_sched.enqueue = AsyncMock()
         result = await st._recover_missed(tasks)
     assert len(result) == 1
-    mock_sched.invoke.assert_not_called()
+    mock_sched.enqueue.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -293,10 +294,10 @@ async def test_recover_missed_future_not_missed():
     future = (datetime.now() + timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=future)]
     with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
-        mock_sched.invoke = AsyncMock(return_value="ok")
+        mock_sched.enqueue = AsyncMock()
         result = await st._recover_missed(tasks)
     assert len(result) == 1
-    mock_sched.invoke.assert_not_called()
+    mock_sched.enqueue.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -304,8 +305,9 @@ async def test_recover_missed_repeat_kept_after_recovery():
     past_last_run = (datetime.now() - timedelta(days=2)).isoformat()
     tasks = [_make_task(type="repeat", trigger="cron:0 9 * * *", last_run=past_last_run)]
     with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
-        mock_sched.invoke = AsyncMock(return_value="ok")
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
         result = await st._recover_missed(tasks)
     # repeat tasks are kept even if missed
     assert len(result) == 1
-    mock_sched.invoke.assert_called_once()
+    mock_sched.enqueue.assert_called_once()

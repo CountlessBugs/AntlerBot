@@ -273,11 +273,31 @@ async def _recover_missed(tasks: list[dict]) -> list[dict]:
                 missed.append(task)
 
     if missed:
-        lines = "\n".join(
-            f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
-            for t in missed
-        )
-        await scheduler.invoke(f"以下定时任务在离线期间已到期：\n{lines}")
+        by_source = {}
+        for t in missed:
+            source = t["source"]
+            key = f"{source['type']}_{source['id']}"
+            if key not in by_source:
+                by_source[key] = {"source": source, "tasks": []}
+            by_source[key]["tasks"].append(t)
+
+        for source_key, data in by_source.items():
+            lines = "\n".join(
+                f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
+                for t in data["tasks"]
+            )
+            msg = f"以下定时任务在离线期间已到期：\n{lines}"
+
+            async def reply_fn(text, src=data["source"]):
+                await _send_reply(src, text)
+
+            await scheduler.enqueue(
+                scheduler.PRIORITY_SCHEDULED,
+                source_key,
+                msg,
+                reply_fn,
+                reason="scheduled_task"
+            )
 
     once_missed = {t["task_id"] for t in missed if t["type"] == "once"}
     return [t for t in tasks if t["task_id"] not in once_missed]
