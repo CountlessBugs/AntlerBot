@@ -92,12 +92,12 @@ def create_task(
     end_date: Optional[str] = None,
     original_prompt: Optional[str] = None,
 ) -> dict:
-    """Create a scheduled task.
-    type: once|repeat|complex_repeat.
-    trigger: timezone-naive ISO datetime (e.g. 2026-03-01T10:00:00) for once, or cron:EXPR for repeat/complex_repeat.
-    source: {"type": "group|private", "id": "chat_id"}. Omit to use the current chat.
-    content: task prompt in system voice.
-    original_prompt: only for complex_repeat, in system voice.
+    """创建定时任务。
+    type: once|repeat|complex_repeat。
+    trigger: 无时区的ISO日期时间（如2026-03-01T10:00:00）用于once，或cron:表达式用于repeat/complex_repeat。
+    source: {"type": "group|private", "id": "chat_id"}。省略则使用当前会话。
+    content: 任务触发时发送给LLM的实际提示词，以系统口吻编写（如"现在是每日新闻时间，请为用户总结今天的热点新闻。"）。
+    original_prompt: 仅用于complex_repeat，以系统口吻描述用户的原始调度意图，供重新调度工作流计算下次触发时间。
     """
     if source is None:
         from src.core import scheduler
@@ -197,7 +197,7 @@ async def _on_trigger(task_id: str) -> None:
             if any(t["task_id"] == task_id for t in current):
                 await _reschedule(task)
 
-    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn, reason="scheduled_task")
+    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn)
 
 
 # --- Rescheduling ---
@@ -273,31 +273,11 @@ async def _recover_missed(tasks: list[dict]) -> list[dict]:
                 missed.append(task)
 
     if missed:
-        by_source = {}
-        for t in missed:
-            source = t["source"]
-            key = f"{source['type']}_{source['id']}"
-            if key not in by_source:
-                by_source[key] = {"source": source, "tasks": []}
-            by_source[key]["tasks"].append(t)
-
-        for source_key, data in by_source.items():
-            lines = "\n".join(
-                f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
-                for t in data["tasks"]
-            )
-            msg = f"以下定时任务在离线期间已到期：\n{lines}"
-
-            async def reply_fn(text, src=data["source"]):
-                await _send_reply(src, text)
-
-            await scheduler.enqueue(
-                scheduler.PRIORITY_SCHEDULED,
-                source_key,
-                msg,
-                reply_fn,
-                reason="scheduled_task"
-            )
+        lines = "\n".join(
+            f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
+            for t in missed
+        )
+        await scheduler.invoke(f"以下定时任务在离线期间已到期：\n{lines}")
 
     once_missed = {t["task_id"] for t in missed if t["type"] == "once"}
     return [t for t in tasks if t["task_id"] not in once_missed]
