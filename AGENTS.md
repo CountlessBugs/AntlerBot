@@ -2,6 +2,10 @@
 
 AntlerBot is a Python-based QQ bot that uses NapCat/NcatBot to interact with QQ, with LangGraph driving LLM replies.
 
+# Coding Standards
+
+- LLM system prompts and tool descriptions must be written in Chinese.
+
 # Framework Documentation
 
 Core framework docs are in `docs/frameworks/`. Read relevant files before implementing features.
@@ -52,24 +56,20 @@ Core features implemented:
 - Receives QQ group/private messages via NcatBot callbacks
 - Formats messages with sender info, enqueues to `scheduler.py` with priority batching (current source first)
 - All sources share one conversation history
-- LLM initialized via `init_chat_model(LLM_MODEL, model_provider=LLM_PROVIDER)`
 - `message_parser.py` parses QQ MessageArray segments (Text, At, Face, Reply, media) into LLM-readable XML tags; Reply parsing is async (requires API call)
 - `media_processor.py` handles media download, ffmpeg trim, base64 passthrough (≤ threshold) and LLM transcription (> threshold); supports separate transcription model via `TRANSCRIPTION_*` env vars
 - `scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`; manages session timeout via APScheduler (`init_timeout`, `enqueue` reschedules `session_summarize` job); builds multimodal content lists from parsed messages
 - `scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
 - Auto-summarization: `agent.py` summarizes history when `input_tokens > context_limit_tokens`; session timeout triggers `summarize_all` then `clear_history()`
-- `load_settings()` reads `config/agent/settings.yaml` at routing time (no restart needed for changes)
 - `commands.py` handles private-chat `/commands`: permission checks against `config/permissions.yaml` (re-read each call), 8 developer commands, 3 admin commands; command messages bypass scheduler and LLM context entirely
 
-# Configuration
+# Adding Configuration Items
 
-Copy `.env.example` → `.env` and `config/agent/prompt.txt.example` → `config/agent/prompt.txt`.
-
-Key env vars: `LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`.
-
-Optional transcription env vars: `TRANSCRIPTION_PROVIDER`, `TRANSCRIPTION_MODEL`, `TRANSCRIPTION_API_KEY`, `TRANSCRIPTION_BASE_URL` (fall back to main LLM vars if unset).
-
-Non-OpenAI providers require their langchain package (e.g. `langchain-anthropic`). A friendly error message guides installation if missing.
+When adding new configuration items to `settings.yaml`, update all three locations:
+1. `config/agent/settings.yaml` - add the config item with appropriate value
+2. `config/agent/settings.yaml.example` - add the config item with default value and comment
+3. `README.md` - add documentation in the settings table (around line 60)
+4. `src/core/agent.py` - add default value to `_SETTINGS_DEFAULTS` dict
 
 # Dependency Management
 
@@ -79,11 +79,3 @@ To add a dependency:
 1. Add it to `requirements.in`
 2. Run: `pip-compile --index-url=https://mirrors.aliyun.com/pypi/simple/ --output-file=requirements.txt requirements.in`
 3. Run: `pip install -r requirements.txt`
-
-# Adding Configuration Items
-
-When adding new configuration items to `settings.yaml`, update all three locations:
-1. `config/agent/settings.yaml` - add the config item with appropriate value
-2. `config/agent/settings.yaml.example` - add the config item with default value and comment
-3. `README.md` - add documentation in the settings table (around line 60)
-4. `src/core/agent.py` - add default value to `_SETTINGS_DEFAULTS` dict
