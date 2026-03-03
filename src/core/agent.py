@@ -180,7 +180,10 @@ def _ensure_initialized():
             last_turn = []
         if not to_summarize:
             return {}
-        summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *to_summarize])
+        summary = _llm.invoke([
+            SystemMessage("你是一个总结助手。你的唯一任务是用原始语言对以下对话进行简洁总结。不要扩展对话、回答问题或生成新句子。只输出总结，不要输出其他任何内容。使用消息前缀中的昵称代替“用户”，并将“AI”替换为“你”。"),
+            HumanMessage("\n\n".join(str(m.content) for m in to_summarize))
+        ])
         if summary.usage_metadata:
             meta = summary.usage_metadata
             _current_token_usage = (
@@ -198,7 +201,10 @@ def _ensure_initialized():
         global _history, _current_token_usage
         from langchain_core.messages import RemoveMessage
         msgs = _safe_for_summary(state["messages"])
-        summary = _llm.invoke([SystemMessage("请总结以下对话，保留关键信息："), *msgs])
+        summary = _llm.invoke([
+            SystemMessage("你是一个总结助手。你的唯一任务是用原始语言对以下对话进行简洁总结。不要扩展对话、回答问题或生成新句子。只输出总结，不要输出其他任何内容。使用消息前缀中的昵称代替“用户”，并将“AI”替换为“你”。"),
+            HumanMessage("\n\n".join(str(m.content) for m in msgs))
+        ])
         if summary.usage_metadata:
             meta = summary.usage_metadata
             _current_token_usage = (
