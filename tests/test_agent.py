@@ -11,6 +11,14 @@ def test_new_agent_package_importable():
     assert agent_mod is not None
 
 
+def test_core_runtime_modules_removed():
+    from pathlib import Path
+
+    assert not Path("src/core").exists()
+    assert not Path("src/core/agent.py").exists()
+    assert not Path("src/core/scheduler.py").exists()
+
+
 @pytest.fixture(autouse=True)
 def reset_agent_state():
     agent_mod._history = []
