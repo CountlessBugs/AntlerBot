@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import src.core.message_handler as mh
-import src.core.contact_cache as contact_cache
-from src.core.message_handler import format_message
-from src.core.message_parser import ParsedMessage, MediaTask
+import src.messaging.handlers as mh
+import src.runtime.contact_cache as contact_cache
+from src.messaging.formatting import format_message
+from src.messaging.parser import ParsedMessage, MediaTask
 
 
 @pytest.fixture(autouse=True)
@@ -13,6 +13,11 @@ def reset_cache():
     yield
     contact_cache._friends = {}
     contact_cache._groups = {}
+
+
+def test_format_message_import_from_formatting_module():
+    from src.messaging.formatting import format_message
+    assert format_message("hello", "Alice") == "<sender>Alice</sender>hello"
 
 
 def test_format_message_group():
@@ -65,10 +70,10 @@ async def test_group_message_with_media_transcription():
         media_tasks=[MediaTask(placeholder_id="abc123", task=mock_task, media_type="image")],
     )
 
-    with patch("src.core.message_handler.message_parser") as mock_parser, \
-         patch("src.core.message_handler.scheduler") as mock_sched, \
-         patch("src.core.message_handler.load_settings", return_value={}), \
-         patch("src.core.message_handler.contact_cache") as mock_cc:
+    with patch("src.messaging.handlers.scheduler") as mock_sched, \
+         patch("src.messaging.handlers.contact_cache") as mock_cc, \
+         patch("src.messaging.handlers.load_settings", return_value={}), \
+         patch("src.messaging.handlers.message_parser") as mock_parser:
         mock_parser.parse_message = AsyncMock(return_value=fake_pm)
         mock_sched.enqueue = AsyncMock()
         mock_sched.PRIORITY_USER_MESSAGE = 1
@@ -112,10 +117,10 @@ async def test_group_message_with_passthrough_image():
         content_blocks=[{"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}],
     )
 
-    with patch("src.core.message_handler.message_parser") as mock_parser, \
-         patch("src.core.message_handler.scheduler") as mock_sched, \
-         patch("src.core.message_handler.load_settings", return_value={}), \
-         patch("src.core.message_handler.contact_cache") as mock_cc:
+    with patch("src.messaging.handlers.scheduler") as mock_sched, \
+         patch("src.messaging.handlers.contact_cache") as mock_cc, \
+         patch("src.messaging.handlers.load_settings", return_value={}), \
+         patch("src.messaging.handlers.message_parser") as mock_parser:
         mock_parser.parse_message = AsyncMock(return_value=fake_pm)
         mock_sched.enqueue = AsyncMock()
         mock_sched.PRIORITY_USER_MESSAGE = 1
