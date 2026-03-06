@@ -1,15 +1,15 @@
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.core.message_parser import ParsedMessage, MediaTask
-import src.core.scheduler as scheduler
+from src.messaging.parser import ParsedMessage, MediaTask
+import src.runtime.scheduler as scheduler
 
 
 # --- _build_agent_content ---
 
 def test_build_content_text_only():
     """No content_blocks → plain string."""
-    from src.core.scheduler import _build_agent_content
+    from src.runtime.scheduler import _build_agent_content
     pm = ParsedMessage(text="hello world", content_blocks=[])
     result = _build_agent_content("formatted msg", pm)
     assert result == "formatted msg"
@@ -17,7 +17,7 @@ def test_build_content_text_only():
 
 def test_build_content_with_blocks():
     """With content_blocks → list[dict] with text + media blocks."""
-    from src.core.scheduler import _build_agent_content
+    from src.runtime.scheduler import _build_agent_content
     pm = ParsedMessage(
         text="look at this",
         content_blocks=[{"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}],
@@ -30,7 +30,7 @@ def test_build_content_with_blocks():
 
 def test_build_content_no_parsed_message():
     """None parsed_message → plain string."""
-    from src.core.scheduler import _build_agent_content
+    from src.runtime.scheduler import _build_agent_content
     result = _build_agent_content("formatted msg", None)
     assert result == "formatted msg"
 
@@ -39,7 +39,7 @@ def test_build_content_no_parsed_message():
 
 @pytest.mark.anyio
 async def test_resolve_media_tasks_success():
-    from src.core.scheduler import _resolve_media_tasks
+    from src.runtime.scheduler import _resolve_media_tasks
     task = AsyncMock(return_value='<image filename="cat.jpg">a cat</image>')()
     tag = '<image status="downloading" filename="cat.jpg" />'
     pm = ParsedMessage(
@@ -53,7 +53,7 @@ async def test_resolve_media_tasks_success():
 
 @pytest.mark.anyio
 async def test_resolve_media_tasks_timeout():
-    from src.core.scheduler import _resolve_media_tasks
+    from src.runtime.scheduler import _resolve_media_tasks
 
     async def slow():
         await asyncio.sleep(100)

@@ -1,0 +1,198 @@
+import asyncio
+import contextlib
+import logging
+from datetime import datetime, timedelta
+from apscheduler.triggers.date import DateTrigger
+from src.agent import agent
+from src.messaging.parser import MediaTask, ParsedMessage
+from src.messaging.media import _MEDIA_TAG
+
+logger = logging.getLogger(__name__)
+
+PRIORITY_SCHEDULED = 0
+PRIORITY_USER_MESSAGE = 1
+PRIORITY_AUTO_CONVERSATION = 2
+
+_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+_processing = False
+_current_source: str | None = None
+_lock = asyncio.Lock()
+_counter = 0
+_apscheduler = None
+
+
+def get_current_source() -> dict | None:
+    if _current_source is None:
+        return None
+    type_, id_ = _current_source.split("_", 1)
+    return {"type": type_, "id": id_}
+
+
+def _batch(items: list) -> list[tuple[str, list[str], list, list, str]]:
+    groups: dict[str, tuple[str, list, list, list, str]] = {}
+    order: list[str] = []
+    for _, _, source_key, msg, reply_fn, parsed_msg, reason in items:
+        batch_key = f"{source_key}:{reason}"
+        if batch_key not in groups:
+            groups[batch_key] = (source_key, [], [], [], reason)
+            order.append(batch_key)
+        groups[batch_key][1].append(msg)
+        groups[batch_key][2].append(reply_fn)
+        groups[batch_key][3].append(parsed_msg)
+    return [(groups[k][0], groups[k][1], groups[k][2], groups[k][3], groups[k][4]) for k in order]
+
+
+def init_timeout(apscheduler) -> None:
+    global _apscheduler
+    _apscheduler = apscheduler
+
+
+async def invoke(message: str, reason: str = "user_message", **kwargs) -> str:
+    return "".join([s async for s in agent._invoke(reason, message, **kwargs)])
+
+
+async def enqueue(priority: int, source_key: str, msg: str, reply_fn,
+                  parsed_message: ParsedMessage | None = None, reason: str = "user_message") -> None:
+    if parsed_message and parsed_message.media_tasks:
+        asyncio.create_task(
+            _resolve_media_and_enqueue(priority, source_key, msg, reply_fn, parsed_message, reason)
+        )
+    else:
+        await _enqueue_ready(priority, source_key, msg, reply_fn, parsed_message, reason)
+
+
+async def _resolve_media_and_enqueue(
+    priority: int,
+    source_key: str,
+    msg: str,
+    reply_fn,
+    parsed_message: ParsedMessage,
+    reason: str = "user_message",
+) -> None:
+    await _enqueue_ready(priority, source_key, msg, reply_fn, None, reason)
+
+    settings = agent.load_settings()
+    timeout = settings.get("media", {}).get("timeout", 60)
+    results = await _resolve_media_tasks(parsed_message, timeout)
+    if not results:
+        return
+
+    for mt in parsed_message.media_tasks:
+        if mt.placeholder_id not in results:
+            continue
+        result = results[mt.placeholder_id]
+        if mt.passthrough and isinstance(result, dict):
+            tag = _MEDIA_TAG.get(mt.media_type, mt.media_type)
+            fn_attr = f' filename="{mt.filename}"' if mt.filename else ""
+            follow_up_msg = f"<{tag}{fn_attr} />"
+            follow_up_pm = ParsedMessage(text="", content_blocks=[result])
+            await _enqueue_ready(priority, source_key, follow_up_msg, reply_fn, parsed_message=follow_up_pm, reason=reason)
+        elif isinstance(result, str):
+            await _enqueue_ready(priority, source_key, result, reply_fn, reason=reason)
+
+
+def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str | list:
+    if not parsed_message or not parsed_message.content_blocks:
+        return msg
+    return [
+        {"type": "text", "text": msg},
+        *parsed_message.content_blocks,
+    ]
+
+
+async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn,
+                         parsed_message: ParsedMessage | None = None, reason: str = "user_message") -> None:
+    global _processing, _counter
+    async with _lock:
+        _counter += 1
+        await _queue.put((priority, _counter, source_key, msg, reply_fn, parsed_message, reason))
+        should_start = not _processing
+        if should_start:
+            _processing = True
+        else:
+            logger.info("queued | source=%s priority=%d depth=%d", source_key, priority, _queue.qsize())
+    if should_start:
+        asyncio.create_task(_process_loop())
+
+
+async def _process_loop():
+    global _processing, _current_source
+    try:
+        while True:
+            async with _lock:
+                if _queue.empty():
+                    _processing = False
+                    _current_source = None
+                    return
+                items = []
+                while not _queue.empty():
+                    items.append(_queue.get_nowait())
+            batches = _batch(items)
+            for source_key, msgs, reply_fns, parsed_msgs, reason in batches:
+                _current_source = source_key
+                logger.info("processing | source=%s batch=%d", source_key, len(msgs))
+                combined_msg = "\n".join(msgs)
+                all_blocks = []
+                for pm in parsed_msgs:
+                    if pm and pm.content_blocks:
+                        all_blocks.extend(pm.content_blocks)
+                if all_blocks:
+                    content = [{"type": "text", "text": combined_msg}, *all_blocks]
+                else:
+                    content = combined_msg
+                async for seg in agent._invoke(reason, content):
+                    await reply_fns[-1](seg)
+            if _apscheduler is not None and agent.has_history():
+                settings = agent.load_settings()
+                _apscheduler.add_job(
+                    _on_session_summarize,
+                    DateTrigger(run_date=datetime.now() + timedelta(seconds=settings["timeout_summarize_seconds"])),
+                    id="session_summarize",
+                    replace_existing=True,
+                )
+                with contextlib.suppress(Exception):
+                    _apscheduler.remove_job("session_clear")
+    except Exception:
+        logger.exception("Error in process loop")
+        async with _lock:
+            _processing = False
+        _current_source = None
+
+
+async def _on_session_summarize() -> None:
+    async for _ in agent._invoke("session_timeout"):
+        pass
+    if _apscheduler is None:
+        return
+    settings = agent.load_settings()
+    _apscheduler.add_job(
+        _on_session_clear,
+        DateTrigger(run_date=datetime.now() + timedelta(seconds=settings["timeout_clear_seconds"])),
+        id="session_clear",
+        replace_existing=True,
+    )
+
+
+async def _on_session_clear() -> None:
+    agent.clear_history()
+    from src.runtime import contact_cache
+    await contact_cache.refresh_all()
+
+
+async def _resolve_media_tasks(pm: ParsedMessage, timeout: float) -> dict[str, str | dict]:
+    if not pm.media_tasks:
+        return {}
+
+    async def _resolve_one(mt: MediaTask) -> tuple[str, str | dict]:
+        tag = _MEDIA_TAG.get(mt.media_type, mt.media_type)
+        try:
+            result = await asyncio.wait_for(mt.task, timeout=timeout)
+            return mt.placeholder_id, result
+        except asyncio.TimeoutError:
+            mt.task.cancel()
+            return mt.placeholder_id, f'<{tag} error="处理超时" />'
+        except Exception:
+            return mt.placeholder_id, f'<{tag} error="处理失败" />'
+
+    pairs = await asyncio.gather(*[_resolve_one(mt) for mt in pm.media_tasks])
+    return dict(pairs)

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import pytest
-import src.core.agent as agent_mod
+import src.agent.agent as agent_mod
 from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -28,10 +28,10 @@ def reset_agent_state():
 
 def test_load_prompt_missing_creates_default(tmp_path, caplog):
     path = str(tmp_path / "prompt.txt")
-    from src.core.agent import load_prompt, PROMPT_EXAMPLE_PATH
+    from src.agent.agent import load_prompt, PROMPT_EXAMPLE_PATH
     with open(PROMPT_EXAMPLE_PATH, encoding="utf-8") as f:
         expected = f.read()
-    with patch("src.core.agent.PROMPT_PATH", path), caplog.at_level(logging.INFO, logger="src.core.agent"):
+    with patch("src.agent.agent.PROMPT_PATH", path), caplog.at_level(logging.INFO, logger="src.agent.agent"):
         result = load_prompt()
     assert result == expected
     assert (tmp_path / "prompt.txt").read_text(encoding="utf-8") == expected
@@ -41,8 +41,8 @@ def test_load_prompt_missing_creates_default(tmp_path, caplog):
 def test_load_prompt_empty_returns_none(tmp_path, caplog):
     path = str(tmp_path / "prompt.txt")
     (tmp_path / "prompt.txt").write_text("", encoding="utf-8")
-    from src.core.agent import load_prompt
-    with patch("src.core.agent.PROMPT_PATH", path), caplog.at_level(logging.WARNING, logger="src.core.agent"):
+    from src.agent.agent import load_prompt
+    with patch("src.agent.agent.PROMPT_PATH", path), caplog.at_level(logging.WARNING, logger="src.agent.agent"):
         result = load_prompt()
     assert result is None
     assert caplog.records
@@ -51,8 +51,8 @@ def test_load_prompt_empty_returns_none(tmp_path, caplog):
 def test_load_prompt_returns_content(tmp_path):
     path = str(tmp_path / "prompt.txt")
     (tmp_path / "prompt.txt").write_text("你好机器人", encoding="utf-8")
-    from src.core.agent import load_prompt
-    with patch("src.core.agent.PROMPT_PATH", path):
+    from src.agent.agent import load_prompt
+    with patch("src.agent.agent.PROMPT_PATH", path):
         result = load_prompt()
     assert result == "你好机器人"
 
@@ -60,15 +60,15 @@ def test_load_prompt_returns_content(tmp_path):
 def test_ensure_initialized_friendly_import_error(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("LLM_MODEL", "claude-3-5-sonnet-20241022")
-    with patch("src.core.agent.load_prompt", return_value=None), \
-         patch("src.core.agent.init_chat_model", side_effect=ImportError):
+    with patch("src.agent.agent.load_prompt", return_value=None), \
+         patch("src.agent.agent.init_chat_model", side_effect=ImportError):
         with pytest.raises(ImportError, match="pip install langchain-anthropic"):
             agent_mod._ensure_initialized()
 
 
 def test_ensure_initialized_missing_env_var(monkeypatch):
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
-    with patch("src.core.agent.load_prompt", return_value=None):
+    with patch("src.agent.agent.load_prompt", return_value=None):
         with pytest.raises(RuntimeError, match="LLM_PROVIDER"):
             agent_mod._ensure_initialized()
 
@@ -177,7 +177,7 @@ async def test_invoke_executes_sequentially():
 
 
 def test_load_settings_defaults_when_missing(tmp_path):
-    with patch("src.core.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
+    with patch("src.agent.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
         result = agent_mod.load_settings()
     assert result == agent_mod._SETTINGS_DEFAULTS
 
@@ -185,7 +185,7 @@ def test_load_settings_defaults_when_missing(tmp_path):
 def test_load_settings_reads_file(tmp_path):
     f = tmp_path / "settings.yaml"
     f.write_text("context_limit_tokens: 4000\n", encoding="utf-8")
-    with patch("src.core.agent.SETTINGS_PATH", str(f)):
+    with patch("src.agent.agent.SETTINGS_PATH", str(f)):
         result = agent_mod.load_settings()
     assert result["context_limit_tokens"] == 4000
     assert result["timeout_summarize_seconds"] == 1800
@@ -215,7 +215,7 @@ def test_route_after_llm_over_limit():
     last = AI("reply")
     last.usage_metadata = {"input_tokens": 99999}
     state = {"messages": [last], "reason": "user_message"}
-    with patch("src.core.agent.load_settings", return_value={"context_limit_tokens": 8000}):
+    with patch("src.agent.agent.load_settings", return_value={"context_limit_tokens": 8000}):
         # route_after_llm is defined inside _ensure_initialized; test via graph routing indirectly
         tokens = (last.usage_metadata or {}).get("input_tokens", 0)
         assert tokens > 8000
@@ -227,7 +227,7 @@ async def test_invoke_logs_start_and_done(caplog):
     mock_graph.astream_events.return_value = _aiter([_make_stream_event("hi")])
     with patch.object(agent_mod, "_ensure_initialized"), \
          patch.object(agent_mod, "_graph", mock_graph), \
-         caplog.at_level(logging.INFO, logger="src.core.agent"):
+         caplog.at_level(logging.INFO, logger="src.agent.agent"):
         async for _ in agent_mod._invoke("user_message", "ping"):
             pass
     msgs = [r.message for r in caplog.records]
@@ -241,7 +241,7 @@ async def test_with_tool_logging_logs_tool_name(caplog):
     mock_tool.name = "my_tool"
     mock_tool.ainvoke = AsyncMock(return_value="result")
     wrapped = agent_mod._with_tool_logging(mock_tool)
-    with caplog.at_level(logging.INFO, logger="src.core.agent"):
+    with caplog.at_level(logging.INFO, logger="src.agent.agent"):
         await wrapped.ainvoke({"input": "x"})
     assert any("my_tool" in r.message for r in caplog.records)
 
@@ -282,7 +282,7 @@ async def test_session_timeout_records_summary_token_usage():
     mock_llm.bind_tools.return_value = mock_llm
     agent_mod._history = [HumanMessage("hello"), AIMessage("hi")]
     agent_mod._current_token_usage = 200
-    with patch("src.core.agent.init_chat_model", return_value=mock_llm), \
+    with patch("src.agent.agent.init_chat_model", return_value=mock_llm), \
          patch.dict("os.environ", {"LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o"}):
         agent_mod._ensure_initialized()
     graph = agent_mod._graph
@@ -303,7 +303,7 @@ async def test_auto_summarize_records_token_usage():
     mock_llm.bind_tools.return_value = mock_llm
     agent_mod._history = [HumanMessage("hello")]
     agent_mod._current_token_usage = 200
-    with patch("src.core.agent.init_chat_model", return_value=mock_llm), \
+    with patch("src.agent.agent.init_chat_model", return_value=mock_llm), \
          patch.dict("os.environ", {"LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o"}):
         agent_mod._ensure_initialized()
     graph = agent_mod._graph

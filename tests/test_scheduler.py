@@ -1,6 +1,6 @@
 import asyncio
 import pytest
-import src.core.scheduler as scheduler
+import src.runtime.scheduler as scheduler
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -135,7 +135,7 @@ async def test_enqueue_logs_when_already_processing(caplog):
     scheduler._processing = True
     async def reply_fn(text): pass
     with patch("asyncio.create_task"), \
-         caplog.at_level(logging.INFO, logger="src.core.scheduler"):
+         caplog.at_level(logging.INFO, logger="src.runtime.scheduler"):
         await scheduler.enqueue(1, "src_a", "hello", reply_fn)
     assert any("queued" in r.message and "src_a" in r.message for r in caplog.records)
     scheduler._processing = False
@@ -150,6 +150,6 @@ async def test_process_loop_logs_processing(caplog):
     async def fake_invoke(*a, **kw):
         yield "response"
     with patch.object(scheduler.agent, "_invoke", fake_invoke), \
-         caplog.at_level(logging.INFO, logger="src.core.scheduler"):
+         caplog.at_level(logging.INFO, logger="src.runtime.scheduler"):
         await scheduler._process_loop()
     assert any("processing" in r.message and "src_a" in r.message for r in caplog.records)

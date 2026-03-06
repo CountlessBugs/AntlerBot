@@ -1,5 +1,5 @@
 import pytest
-import src.core.contact_cache as contact_cache
+import src.runtime.contact_cache as contact_cache
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
