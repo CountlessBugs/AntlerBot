@@ -1,0 +1,4 @@
+70f56c2 refactor: add package skeleton for module split
+4c67aae refactor: move agent and runtime modules
+a1b9b26 refactor: move messaging and commands modules
+a715a19 refactor: finalize responsibility-based module split
