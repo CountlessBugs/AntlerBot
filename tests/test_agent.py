@@ -6,6 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
+def test_new_agent_package_importable():
+    import src.agent.agent as agent_mod
+    assert agent_mod is not None
+
+
 @pytest.fixture(autouse=True)
 def reset_agent_state():
     agent_mod._history = []
