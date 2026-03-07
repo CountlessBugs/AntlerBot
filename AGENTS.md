@@ -20,24 +20,30 @@ NcatBot is the core framework for interacting with QQ. Docs: `docs/frameworks/Nc
 # Project Structure
 
 ```
-main.py                        # entry point: load_dotenv, register handlers, bot.run()
+main.py                        # entry point: load_dotenv, set NCATBOT_CONFIG_PATH, register handlers, bot.run()
 src/
-  core/
+  agent/
     agent.py                   # LangGraph workflow, LLM init, shared history, load_prompt(), load_settings(), auto-summarization
-    message_handler.py         # NcatBot callbacks, format_message, intercepts private /commands, enqueues to scheduler
-    message_parser.py          # structured message parsing: Text/At/Face/Reply/media segments → XML tags
-    media_processor.py         # media download, ffmpeg trim, LLM transcription, base64 passthrough
+  messaging/
+    handlers.py                # NcatBot callbacks, intercepts private /commands, parses messages, formats sender info, enqueues to scheduler
+    formatting.py              # format_message(), get_sender_name()
+    parser.py                  # structured message parsing: Text/At/Face/Reply/media segments → XML tags
+    media.py                   # media download, ffmpeg trim, LLM transcription, base64 passthrough
+  runtime/
     scheduler.py               # centralized queue, priority batching, sole caller of agent; session timeout via APScheduler
     scheduled_tasks.py         # APScheduler jobs, task CRUD tools, startup recovery
-    commands.py                # command registry, permission checks, command handlers
     contact_cache.py           # QQ contact info cache
+  commands/
+    handlers.py                # command registry, permission checks, command handlers
   data/
     face_map.py                # QQ face emoji ID → name mapping
 config/
   agent/
     prompt.txt.example         # copy to prompt.txt to set system prompt
     settings.yaml              # runtime settings (context limits, timeouts, media processing, etc.)
+  ncatbot.yaml                 # NcatBot runtime configuration
   permissions.yaml             # 3-tier permissions: developer/admin QQ UID lists (auto-created if missing)
+  tasks.json                   # persisted scheduled task definitions
 tests/
   test_agent.py
   test_message_handler.py
@@ -53,15 +59,15 @@ tests/
 # Current State
 
 Core features implemented:
-- Receives QQ group/private messages via NcatBot callbacks
-- Formats messages with sender info, enqueues to `scheduler.py` with priority batching (current source first)
-- All sources share one conversation history
-- `message_parser.py` parses QQ MessageArray segments (Text, At, Face, Reply, media) into LLM-readable XML tags; Reply parsing is async (requires API call)
-- `media_processor.py` handles media download, ffmpeg trim, base64 passthrough (≤ threshold) and LLM transcription (> threshold); supports separate transcription model via `TRANSCRIPTION_*` env vars
-- `scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`; manages session timeout via APScheduler (`init_timeout`, `enqueue` reschedules `session_summarize` job); builds multimodal content lists from parsed messages
-- `scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
-- Auto-summarization: `agent.py` summarizes history when `input_tokens > context_limit_tokens`; session timeout triggers `summarize_all` then `clear_history()`
-- `commands.py` handles private-chat `/commands`: permission checks against `config/permissions.yaml` (re-read each call), 8 developer commands, 3 admin commands; command messages bypass scheduler and LLM context entirely
+- Receives QQ group/private messages via `src/messaging/handlers.py` NcatBot callbacks
+- Formats sender/group context in `src/messaging/formatting.py`, parses message segments in `src/messaging/parser.py`, and enqueues work to `src/runtime/scheduler.py` with priority batching (current source first)
+- All sources share one conversation history managed by `src/agent/agent.py`
+- `src/messaging/parser.py` parses QQ MessageArray segments (Text, At, Face, Reply, media) into LLM-readable XML tags; Reply parsing is async (requires API call)
+- `src/messaging/media.py` handles media download, ffmpeg trim, base64 passthrough (≤ threshold) and LLM transcription (> threshold); supports separate transcription model via `TRANSCRIPTION_*` env vars
+- `src/runtime/scheduler.py` centralizes queue, priority, and batching; is the sole caller of `agent._invoke`; manages session timeout via APScheduler (`init_timeout`, `enqueue` reschedules `session_summarize` job); builds multimodal content lists from parsed messages
+- `src/runtime/scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
+- Auto-summarization: `src/agent/agent.py` summarizes history when `input_tokens > context_limit_tokens`; session timeout triggers `summarize_all` then `clear_history()`
+- `src/commands/handlers.py` handles private-chat `/commands`: permission checks against `config/permissions.yaml` (re-read each call), 8 developer commands, 3 admin commands; command messages bypass scheduler and LLM context entirely
 
 # Adding Configuration Items
 
@@ -69,7 +75,7 @@ When adding new configuration items to `settings.yaml`, update all three locatio
 1. `config/agent/settings.yaml` - add the config item with appropriate value
 2. `config/agent/settings.yaml.example` - add the config item with default value and comment
 3. `README.md` - add documentation in the settings table (around line 60)
-4. `src/core/agent.py` - add default value to `_SETTINGS_DEFAULTS` dict
+4. `src/agent/agent.py` - add default value to `_SETTINGS_DEFAULTS` dict
 
 # Dependency Management
 
