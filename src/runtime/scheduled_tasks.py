@@ -189,7 +189,7 @@ async def _on_trigger(task_id: str) -> None:
             if any(t["task_id"] == task_id for t in current):
                 await _reschedule(task)
 
-    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn)
+    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn, reason="scheduled_task")
 
 
 class _RescheduleOutput(BaseModel):
@@ -261,11 +261,29 @@ async def _recover_missed(tasks: list[dict]) -> list[dict]:
                 missed.append(task)
 
     if missed:
-        lines = "\n".join(
-            f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
-            for t in missed
-        )
-        await scheduler.invoke(f"以下定时任务在离线期间已到期：\n{lines}")
+        grouped: dict[str, list[dict]] = {}
+        for task in missed:
+            source = task["source"]
+            source_key = f"{source['type']}_{source['id']}"
+            grouped.setdefault(source_key, []).append(task)
+
+        for source_key, source_tasks in grouped.items():
+            lines = "\n".join(
+                f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
+                for t in source_tasks
+            )
+            source = source_tasks[0]["source"]
+
+            async def reply_fn(text, source=source):
+                await _send_reply(source, text)
+
+            await scheduler.enqueue(
+                scheduler.PRIORITY_SCHEDULED,
+                source_key,
+                f"以下定时任务在离线期间已到期：\n{lines}",
+                reply_fn,
+                reason="scheduled_task",
+            )
 
     once_missed = {t["task_id"] for t in missed if t["type"] == "once"}
     return [t for t in tasks if t["task_id"] not in once_missed]
