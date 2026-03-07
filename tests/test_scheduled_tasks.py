@@ -4,7 +4,7 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import src.core.scheduled_tasks as st
+import src.runtime.scheduled_tasks as st
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +56,7 @@ def test_register_apscheduler_job_logs(caplog):
     }
     mock_scheduler = MagicMock()
     with patch.object(st, "_scheduler", mock_scheduler), \
-         caplog.at_level(logging.INFO, logger="src.core.scheduled_tasks"):
+         caplog.at_level(logging.INFO, logger="src.runtime.scheduled_tasks"):
         st._register_apscheduler_job(task)
     assert any("job registered" in r.message and "测试" in r.message for r in caplog.records)
 
@@ -84,8 +84,8 @@ def _make_task(**kwargs):
 @pytest.fixture
 def mock_io(tmp_path):
     tasks_path = str(tmp_path / "tasks.json")
-    with patch("src.core.scheduled_tasks.TASKS_PATH", tasks_path), \
-         patch("src.core.scheduled_tasks._register_apscheduler_job"):
+    with patch("src.runtime.scheduled_tasks.TASKS_PATH", tasks_path), \
+         patch("src.runtime.scheduled_tasks._register_apscheduler_job"):
         yield tasks_path
 
 
@@ -111,7 +111,7 @@ def test_create_task_complex_repeat_type(mock_io):
 
 
 def test_create_task_default_source(mock_io):
-    import src.core.scheduler as sched
+    import src.runtime.scheduler as sched
     sched._current_source = "group_99"
     try:
         result = st.create_task.invoke({
@@ -186,12 +186,27 @@ async def test_on_trigger_once_removes_task(mock_io):
         "trigger": "2026-03-01T10:00:00", "source": {"type": "group", "id": "1"},
     })
     task_id = st._load_tasks()[0]["task_id"]
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched, \
          patch.object(st._scheduler, "remove_job"):
         mock_sched.enqueue = AsyncMock()
         mock_sched.PRIORITY_SCHEDULED = 0
         await st._on_trigger(task_id)
     assert st._load_tasks() == []
+
+
+@pytest.mark.anyio
+async def test_on_trigger_enqueues_scheduled_task_reason(mock_io):
+    st.create_task.invoke({
+        "type": "once", "name": "提醒", "content": "内容",
+        "trigger": "2026-03-01T10:00:00", "source": {"type": "group", "id": "1"},
+    })
+    task_id = st._load_tasks()[0]["task_id"]
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched, \
+         patch.object(st._scheduler, "remove_job"):
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
+        await st._on_trigger(task_id)
+    assert mock_sched.enqueue.await_args.kwargs["reason"] == "scheduled_task"
 
 
 @pytest.mark.anyio
@@ -201,7 +216,7 @@ async def test_on_trigger_repeat_kept_and_uses_run_count(mock_io):
         "trigger": "cron:0 9 * * *", "source": {"type": "group", "id": "1"},
     })
     task_id = st._load_tasks()[0]["task_id"]
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched:
         mock_sched.enqueue = AsyncMock()
         mock_sched.PRIORITY_SCHEDULED = 0
         await st._on_trigger(task_id)
@@ -220,7 +235,7 @@ async def test_on_trigger_max_runs_removes_task(mock_io):
         "max_runs": 1,
     })
     task_id = st._load_tasks()[0]["task_id"]
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched, \
          patch.object(st._scheduler, "remove_job"):
         mock_sched.enqueue = AsyncMock()
         mock_sched.PRIORITY_SCHEDULED = 0
@@ -239,7 +254,7 @@ async def test_reschedule_cancel_removes_task(mock_io):
     })
     task = st._load_tasks()[0]
     output = st._RescheduleOutput(action="cancel")
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched, \
          patch.object(st._scheduler, "remove_job"):
         mock_sched.invoke = AsyncMock(return_value=output.model_dump_json())
         await st._reschedule(task)
@@ -256,8 +271,8 @@ async def test_reschedule_reschedule_updates_trigger(mock_io):
     task = st._load_tasks()[0]
     new_trigger = "2026-04-01T09:00:00"
     output = st._RescheduleOutput(action="reschedule", trigger=new_trigger)
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched, \
-         patch("src.core.scheduled_tasks._register_apscheduler_job") as mock_reg:
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched, \
+         patch("src.runtime.scheduled_tasks._register_apscheduler_job") as mock_reg:
         mock_sched.invoke = AsyncMock(return_value=output.model_dump_json())
         await st._reschedule(task)
     saved = st._load_tasks()[0]
@@ -270,18 +285,47 @@ async def test_reschedule_reschedule_updates_trigger(mock_io):
 async def test_recover_missed_once_removes_task(tmp_path):
     past = (datetime.now() - timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=past)]
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
-        mock_sched.invoke = AsyncMock()
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched, \
+         patch("src.runtime.scheduled_tasks._send_reply", new_callable=AsyncMock):
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
         result = await st._recover_missed(tasks)
     assert result == []
-    mock_sched.invoke.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_recover_missed_enqueues_by_source_with_scheduled_task_reason():
+    past = (datetime.now() - timedelta(hours=1)).isoformat()
+    tasks = [
+        _make_task(task_id="tid-1", name="任务1", trigger=past, source={"type": "group", "id": "123"}),
+        _make_task(task_id="tid-2", name="任务2", trigger=past, source={"type": "group", "id": "123"}),
+        _make_task(task_id="tid-3", name="任务3", trigger=past, source={"type": "private", "id": "456"}),
+    ]
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched, \
+         patch("src.runtime.scheduled_tasks._send_reply", new_callable=AsyncMock):
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
+        await st._recover_missed(tasks)
+
+    assert mock_sched.enqueue.await_count == 2
+    first_call = mock_sched.enqueue.await_args_list[0]
+    second_call = mock_sched.enqueue.await_args_list[1]
+
+    assert first_call.args[1] == "group_123"
+    assert "任务1" in first_call.args[2]
+    assert "任务2" in first_call.args[2]
+    assert first_call.kwargs["reason"] == "scheduled_task"
+
+    assert second_call.args[1] == "private_456"
+    assert "任务3" in second_call.args[2]
+    assert second_call.kwargs["reason"] == "scheduled_task"
 
 
 @pytest.mark.anyio
 async def test_recover_missed_once_already_run_not_missed(tmp_path):
     past = (datetime.now() - timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=past, last_run=past)]
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched:
         mock_sched.enqueue = AsyncMock()
         result = await st._recover_missed(tasks)
     assert len(result) == 1
@@ -292,7 +336,7 @@ async def test_recover_missed_once_already_run_not_missed(tmp_path):
 async def test_recover_missed_future_not_missed():
     future = (datetime.now() + timedelta(hours=1)).isoformat()
     tasks = [_make_task(trigger=future)]
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched:
         mock_sched.enqueue = AsyncMock()
         result = await st._recover_missed(tasks)
     assert len(result) == 1
@@ -303,9 +347,10 @@ async def test_recover_missed_future_not_missed():
 async def test_recover_missed_repeat_kept_after_recovery():
     past_last_run = (datetime.now() - timedelta(days=2)).isoformat()
     tasks = [_make_task(type="repeat", trigger="cron:0 9 * * *", last_run=past_last_run)]
-    with patch("src.core.scheduled_tasks.scheduler") as mock_sched:
-        mock_sched.invoke = AsyncMock()
+    with patch("src.runtime.scheduled_tasks.scheduler") as mock_sched:
+        mock_sched.enqueue = AsyncMock()
+        mock_sched.PRIORITY_SCHEDULED = 0
         result = await st._recover_missed(tasks)
     # repeat tasks are kept even if missed
     assert len(result) == 1
-    mock_sched.invoke.assert_called_once()
+    mock_sched.enqueue.assert_called_once()

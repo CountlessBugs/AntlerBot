@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 _http_client: httpx.AsyncClient | None = None
 
 
+
 def _get_http_client() -> httpx.AsyncClient:
     global _http_client
     if _http_client is None or _http_client.is_closed:
@@ -20,6 +21,7 @@ def _get_http_client() -> httpx.AsyncClient:
     return _http_client
 
 _ffmpeg_available: bool | None = None
+
 
 
 def check_ffmpeg() -> bool:
@@ -34,7 +36,6 @@ def check_ffmpeg() -> bool:
 
 
 async def _get_file_url(seg, source: str) -> str | None:
-    """Resolve file download URL via NapCat API based on message source."""
     file_id = getattr(seg, "file_id", None)
     if not file_id:
         return None
@@ -46,8 +47,8 @@ async def _get_file_url(seg, source: str) -> str | None:
     return await api.get_private_file_url(file_id)
 
 
+
 def _seg_can_download(seg) -> bool:
-    """Check if seg.download() can succeed without triggering NcatBotError logging."""
     url = getattr(seg, "url", None)
     if url is not None:
         return True
@@ -56,7 +57,6 @@ def _seg_can_download(seg) -> bool:
 
 
 async def _download_via_url(url: str, name: str, tmp_dir: str) -> str:
-    """Download a file from URL to tmp_dir."""
     path = os.path.join(tmp_dir, name)
     resp = await _get_http_client().get(url)
     resp.raise_for_status()
@@ -66,15 +66,12 @@ async def _download_via_url(url: str, name: str, tmp_dir: str) -> str:
 
 
 async def download_media(seg, source: str = "") -> str | None:
-    """Download a media segment to a temp file. Returns the file path or None on failure."""
     tmp_dir = tempfile.mkdtemp(prefix="antlerbot_media_")
-    # Try seg.download() only if it won't trigger NcatBotError (which logs ERROR internally)
     if _seg_can_download(seg):
         try:
             return await seg.download(tmp_dir)
         except Exception:
             logger.debug("seg.download failed, trying API fallback", exc_info=True)
-    # Fallback: resolve URL via NapCat API
     try:
         url = await _get_file_url(seg, source)
         if url:
@@ -87,7 +84,6 @@ async def download_media(seg, source: str = "") -> str | None:
 
 
 async def _get_duration(path: str) -> float:
-    """Get media duration in seconds using ffprobe."""
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffprobe", "-v", "quiet", "-print_format", "json",
@@ -104,7 +100,6 @@ async def _get_duration(path: str) -> float:
 
 
 async def _run_ffmpeg_trim(input_path: str, max_duration: int) -> str | None:
-    """Trim media to max_duration seconds. Returns output path or None."""
     base, ext = os.path.splitext(input_path)
     output_path = f"{base}_trimmed{ext}"
     try:
@@ -126,7 +121,6 @@ async def _run_ffmpeg_trim(input_path: str, max_duration: int) -> str | None:
 
 
 async def trim_media(path: str, max_duration: int) -> str | None:
-    """Trim media if over max_duration. Returns path (original or trimmed) or None if skip."""
     if max_duration <= 0:
         return path
     duration = await _get_duration(path)
@@ -141,8 +135,8 @@ async def trim_media(path: str, max_duration: int) -> str | None:
 _transcription_llm = None
 
 
+
 def reset_transcription_llm() -> None:
-    """Reset the transcription LLM instance to force reinitialization."""
     global _transcription_llm
     _transcription_llm = None
 
@@ -164,8 +158,8 @@ _TRANSCRIPTION_PROMPTS = {
 }
 
 
+
 def _get_transcription_llm(settings: dict | None = None):
-    """Get or create the transcription LLM. Uses main LLM if no override configured."""
     global _transcription_llm
     if _transcription_llm is not None:
         return _transcription_llm
@@ -184,7 +178,7 @@ def _get_transcription_llm(settings: dict | None = None):
         from langchain.chat_models import init_chat_model
         _transcription_llm = init_chat_model(model, model_provider=provider, **kwargs)
     else:
-        from src.core.agent import _llm, _ensure_initialized
+        from src.agent.agent import _llm, _ensure_initialized
         _ensure_initialized()
         _transcription_llm = _llm
 
@@ -192,7 +186,6 @@ def _get_transcription_llm(settings: dict | None = None):
 
 
 async def transcribe_media(path: str, media_type: str, settings: dict | None = None, filename: str = "") -> str | None:
-    """Transcribe a media file using the configured LLM. Returns description text or None."""
     try:
         llm = _get_transcription_llm(settings)
         prompt = _TRANSCRIPTION_PROMPTS.get(media_type, "请描述这个文件的内容。")
@@ -200,7 +193,6 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
         sys_msg = SystemMessage(content=_TRANSCRIPTION_SYSTEM)
         fn_attr = f' filename="{filename}"' if filename else ""
 
-        # Documents: read as text and send inline, wrapped in XML tags
         if media_type == "document":
             try:
                 with open(path, "r", encoding="utf-8") as f:
@@ -212,7 +204,6 @@ async def transcribe_media(path: str, media_type: str, settings: dict | None = N
             response = await llm.ainvoke([sys_msg, msg])
             return response.content
 
-        # Images/audio/video: send as base64 multimodal
         with open(path, "rb") as f:
             data = base64.b64encode(f.read()).decode("utf-8")
 
@@ -243,8 +234,6 @@ _MIME_MAP = {
 
 
 async def passthrough_media_segment(seg, media_type: str, settings: dict, source: str = "") -> dict | None:
-    """Download media, base64-encode, return a content_block dict for LLM input.
-    Returns None on failure."""
     type_cfg = settings.get("media", {}).get(media_type, {})
 
     path = await download_media(seg, source)
@@ -282,8 +271,8 @@ _MEDIA_TAG = {
 }
 
 
+
 def _cleanup_temp(path: str) -> None:
-    """Remove a temp file and its parent dir if empty."""
     try:
         if path and os.path.exists(path):
             os.remove(path)
@@ -295,20 +284,17 @@ def _cleanup_temp(path: str) -> None:
 
 
 async def process_media_segment(seg, media_type: str, settings: dict, source: str = "") -> str:
-    """Full pipeline: download → trim → transcribe → format result."""
     tag = _MEDIA_TAG.get(media_type, media_type)
     type_cfg = settings.get("media", {}).get(media_type, {})
     filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
 
     fn_attr = f' filename="{filename}"' if filename else ""
 
-    # Download
     path = await download_media(seg, source)
     if not path:
         return f'<{tag}{fn_attr} error="download_failed" />'
 
     try:
-        # Trim (audio/video only)
         if media_type in ("audio", "video"):
             max_dur = type_cfg.get("max_duration", 0)
             if max_dur > 0:
@@ -322,7 +308,6 @@ async def process_media_segment(seg, media_type: str, settings: dict, source: st
                     _cleanup_temp(path)
                     path = trimmed
 
-        # Transcribe
         desc = await transcribe_media(path, media_type, settings, filename)
         if desc:
             return f"<{tag}{fn_attr}>{desc}</{tag}>"

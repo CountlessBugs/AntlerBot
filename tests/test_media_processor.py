@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
-from src.core.media_processor import (
+from src.messaging.media import (
     check_ffmpeg, download_media, trim_media, transcribe_media,
     process_media_segment, passthrough_media_segment,
 )
@@ -9,7 +9,7 @@ from src.core.media_processor import (
 
 @pytest.fixture(autouse=True)
 def reset_ffmpeg_cache():
-    import src.core.media_processor as mp
+    import src.messaging.media as mp
     mp._ffmpeg_available = None
     yield
     mp._ffmpeg_available = None
@@ -48,7 +48,7 @@ async def test_download_media_from_url():
 @pytest.mark.anyio
 async def test_trim_media_under_limit():
     """File under max_duration is returned as-is."""
-    with patch("src.core.media_processor._get_duration", return_value=30.0):
+    with patch("src.messaging.media._get_duration", return_value=30.0):
         result = await trim_media("/tmp/voice.amr", max_duration=60)
         assert result == "/tmp/voice.amr"
 
@@ -56,9 +56,9 @@ async def test_trim_media_under_limit():
 @pytest.mark.anyio
 async def test_trim_media_over_limit_trims():
     """File over max_duration gets trimmed via ffmpeg."""
-    with patch("src.core.media_processor._get_duration", return_value=120.0), \
-         patch("src.core.media_processor.check_ffmpeg", return_value=True), \
-         patch("src.core.media_processor._run_ffmpeg_trim", new_callable=AsyncMock, return_value="/tmp/trimmed.amr"):
+    with patch("src.messaging.media._get_duration", return_value=120.0), \
+         patch("src.messaging.media.check_ffmpeg", return_value=True), \
+         patch("src.messaging.media._run_ffmpeg_trim", new_callable=AsyncMock, return_value="/tmp/trimmed.amr"):
         result = await trim_media("/tmp/voice.amr", max_duration=60)
         assert result == "/tmp/trimmed.amr"
 
@@ -66,8 +66,8 @@ async def test_trim_media_over_limit_trims():
 @pytest.mark.anyio
 async def test_trim_media_over_limit_no_ffmpeg():
     """File over limit with no ffmpeg returns None."""
-    with patch("src.core.media_processor._get_duration", return_value=120.0), \
-         patch("src.core.media_processor.check_ffmpeg", return_value=False):
+    with patch("src.messaging.media._get_duration", return_value=120.0), \
+         patch("src.messaging.media.check_ffmpeg", return_value=False):
         result = await trim_media("/tmp/voice.amr", max_duration=60)
         assert result is None
 
@@ -75,7 +75,7 @@ async def test_trim_media_over_limit_no_ffmpeg():
 @pytest.mark.anyio
 async def test_trim_media_zero_max_duration():
     """max_duration=0 means unlimited, no trim."""
-    with patch("src.core.media_processor._get_duration", return_value=9999.0):
+    with patch("src.messaging.media._get_duration", return_value=9999.0):
         result = await trim_media("/tmp/voice.amr", max_duration=0)
         assert result == "/tmp/voice.amr"
 
@@ -90,7 +90,7 @@ async def test_transcribe_image():
     mock_file.__enter__ = MagicMock(return_value=mock_file)
     mock_file.__exit__ = MagicMock(return_value=False)
     mock_file.read.return_value = b"fake image bytes"
-    with patch("src.core.media_processor._get_transcription_llm", return_value=mock_llm), \
+    with patch("src.messaging.media._get_transcription_llm", return_value=mock_llm), \
          patch("builtins.open", return_value=mock_file):
         result = await transcribe_media("/tmp/cat.jpg", "image")
         assert result == "一只橘猫趴在沙发上"
@@ -104,7 +104,7 @@ async def test_transcribe_audio():
     mock_file.__enter__ = MagicMock(return_value=mock_file)
     mock_file.__exit__ = MagicMock(return_value=False)
     mock_file.read.return_value = b"fake audio bytes"
-    with patch("src.core.media_processor._get_transcription_llm", return_value=mock_llm), \
+    with patch("src.messaging.media._get_transcription_llm", return_value=mock_llm), \
          patch("builtins.open", return_value=mock_file):
         result = await transcribe_media("/tmp/voice.amr", "audio")
         assert result == "用户说了你好"
@@ -112,7 +112,7 @@ async def test_transcribe_audio():
 
 @pytest.mark.anyio
 async def test_transcribe_failure():
-    with patch("src.core.media_processor._get_transcription_llm", side_effect=Exception("no model")):
+    with patch("src.messaging.media._get_transcription_llm", side_effect=Exception("no model")):
         result = await transcribe_media("/tmp/cat.jpg", "image")
         assert result is None
 
@@ -127,8 +127,8 @@ async def test_process_image_transcribe():
     seg.get_file_name.return_value = "cat.jpg"
     seg.download = AsyncMock(return_value="/tmp/cat.jpg")
     settings = {"media": {"image": {}}}
-    with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value="一只猫"), \
-         patch("src.core.media_processor._cleanup_temp"):
+    with patch("src.messaging.media.transcribe_media", new_callable=AsyncMock, return_value="一只猫"), \
+         patch("src.messaging.media._cleanup_temp"):
         result = await process_media_segment(seg, "image", settings)
         assert result == '<image filename="cat.jpg">一只猫</image>'
 
@@ -140,9 +140,9 @@ async def test_process_audio_transcribe_with_trim():
     seg.get_file_name.return_value = "voice.amr"
     seg.download = AsyncMock(return_value="/tmp/voice.amr")
     settings = {"media": {"audio": {"max_duration": 60, "trim_over_limit": True}}}
-    with patch("src.core.media_processor.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
-         patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value="你好"), \
-         patch("src.core.media_processor._cleanup_temp"):
+    with patch("src.messaging.media.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
+         patch("src.messaging.media.transcribe_media", new_callable=AsyncMock, return_value="你好"), \
+         patch("src.messaging.media._cleanup_temp"):
         result = await process_media_segment(seg, "audio", settings)
         assert result == '<audio filename="voice.amr">你好</audio>'
 
@@ -165,8 +165,8 @@ async def test_process_transcription_failure():
     seg.get_file_name.return_value = "pic.jpg"
     seg.download = AsyncMock(return_value="/tmp/pic.jpg")
     settings = {"media": {"image": {}}}
-    with patch("src.core.media_processor.transcribe_media", new_callable=AsyncMock, return_value=None), \
-         patch("src.core.media_processor._cleanup_temp"):
+    with patch("src.messaging.media.transcribe_media", new_callable=AsyncMock, return_value=None), \
+         patch("src.messaging.media._cleanup_temp"):
         result = await process_media_segment(seg, "image", settings)
         assert result == '<image filename="pic.jpg" error="transcription_failed" />'
 
@@ -185,7 +185,7 @@ async def test_passthrough_image():
     mock_file.__exit__ = MagicMock(return_value=False)
     mock_file.read.return_value = b"fake image bytes"
     with patch("builtins.open", return_value=mock_file), \
-         patch("src.core.media_processor._cleanup_temp"):
+         patch("src.messaging.media._cleanup_temp"):
         result = await passthrough_media_segment(seg, "image", settings)
         assert result is not None
         assert result["type"] == "image_url"
@@ -214,8 +214,8 @@ async def test_passthrough_audio_with_trim():
     mock_file.__exit__ = MagicMock(return_value=False)
     mock_file.read.return_value = b"fake audio bytes"
     with patch("builtins.open", return_value=mock_file), \
-         patch("src.core.media_processor.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
-         patch("src.core.media_processor._cleanup_temp"):
+         patch("src.messaging.media.trim_media", new_callable=AsyncMock, return_value="/tmp/voice.amr"), \
+         patch("src.messaging.media._cleanup_temp"):
         result = await passthrough_media_segment(seg, "audio", settings)
         assert result is not None
         assert result["image_url"]["url"].startswith("data:audio/")

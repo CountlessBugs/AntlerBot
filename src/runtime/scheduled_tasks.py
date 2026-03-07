@@ -12,7 +12,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel
 
-from src.core import agent, scheduler
+from src.agent import agent
+from src.runtime import scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,6 @@ TASKS_PATH = os.path.normpath(
 _scheduler = AsyncIOScheduler()
 _bot = None
 
-
-# --- Data layer ---
 
 def _load_tasks() -> list[dict]:
     if not os.path.exists(TASKS_PATH):
@@ -52,8 +51,6 @@ def _unique_name(name: str, tasks: list[dict]) -> str:
     return f"{name}({i})"
 
 
-# --- APScheduler ---
-
 def _parse_cron(expr: str) -> CronTrigger:
     expr = expr.replace("?", "*")
     fields = expr.split()
@@ -79,8 +76,6 @@ def _register_apscheduler_job(task: dict) -> None:
     logger.info("job registered | name=%s type=%s trigger=%s", task["name"], task["type"], trigger_str)
 
 
-# --- Tools ---
-
 @tool
 def create_task(
     type: str,
@@ -100,7 +95,6 @@ def create_task(
     original_prompt: 仅用于complex_repeat，以系统口吻描述用户的原始调度意图，供重新调度工作流计算下次触发时间。
     """
     if source is None:
-        from src.core import scheduler
         source = scheduler.get_current_source()
     if source is None:
         return {"error": "source is required: no current chat context"}
@@ -144,8 +138,6 @@ def cancel_task(task_id: Optional[str] = None, name: Optional[str] = None) -> di
         pass
     return {"cancelled": target["name"]}
 
-
-# --- Trigger workflow ---
 
 async def _send_reply(source: dict, text: str) -> None:
     if _bot is None:
@@ -197,10 +189,8 @@ async def _on_trigger(task_id: str) -> None:
             if any(t["task_id"] == task_id for t in current):
                 await _reschedule(task)
 
-    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn)
+    await scheduler.enqueue(scheduler.PRIORITY_SCHEDULED, source_key, f"{header}\n{task['content']}", reply_fn, reason="scheduled_task")
 
-
-# --- Rescheduling ---
 
 class _RescheduleOutput(BaseModel):
     action: str
@@ -253,8 +243,6 @@ async def _reschedule(task: dict) -> None:
         _register_apscheduler_job(target)
 
 
-# --- Startup recovery ---
-
 async def _recover_missed(tasks: list[dict]) -> list[dict]:
     now = datetime.now()
     missed = []
@@ -273,17 +261,33 @@ async def _recover_missed(tasks: list[dict]) -> list[dict]:
                 missed.append(task)
 
     if missed:
-        lines = "\n".join(
-            f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
-            for t in missed
-        )
-        await scheduler.invoke(f"以下定时任务在离线期间已到期：\n{lines}")
+        grouped: dict[str, list[dict]] = {}
+        for task in missed:
+            source = task["source"]
+            source_key = f"{source['type']}_{source['id']}"
+            grouped.setdefault(source_key, []).append(task)
+
+        for source_key, source_tasks in grouped.items():
+            lines = "\n".join(
+                f"- {t['name']} (原定时间：{t['trigger']}): {t['content']}"
+                for t in source_tasks
+            )
+            source = source_tasks[0]["source"]
+
+            async def reply_fn(text, source=source):
+                await _send_reply(source, text)
+
+            await scheduler.enqueue(
+                scheduler.PRIORITY_SCHEDULED,
+                source_key,
+                f"以下定时任务在离线期间已到期：\n{lines}",
+                reply_fn,
+                reason="scheduled_task",
+            )
 
     once_missed = {t["task_id"] for t in missed if t["type"] == "once"}
     return [t for t in tasks if t["task_id"] not in once_missed]
 
-
-# --- Register ---
 
 async def register(bot) -> None:
     global _bot

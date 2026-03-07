@@ -7,7 +7,9 @@ from datetime import datetime
 import yaml
 from dotenv import load_dotenv
 
-from src.core import agent, scheduler, scheduled_tasks, contact_cache, media_processor
+from src.agent import agent
+from src.runtime import scheduler, scheduled_tasks, contact_cache
+from src.messaging import media
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,7 @@ PERMISSIONS_PATH = os.path.normpath(
 )
 
 _ROLE_MAP = {"admin": ROLE_ADMIN, "developer": ROLE_DEVELOPER}
+
 
 
 def load_permissions() -> dict[str, int]:
@@ -40,26 +43,25 @@ def load_permissions() -> dict[str, int]:
     return result
 
 
+
 def get_role(user_id: str) -> int:
     return load_permissions().get(user_id, ROLE_USER)
 
 
+
 def reload_env() -> None:
-    """Reload environment variables from .env file."""
     load_dotenv(override=True)
     logger.info("Environment variables reloaded from .env")
 
 
-# Registry: name → (min_role, handler, description, usage)
 _COMMANDS: dict[str, tuple[int, callable, str, str]] = {}
-
 
 _BASE64_DATA_RE = re.compile(r"data:[^;]+;base64,[A-Za-z0-9+/=]+")
 _MIME_TAG = {"image": "image", "audio": "audio", "video": "video"}
 
 
+
 def _sanitize_content(content) -> str:
-    """Replace base64 media in multimodal content with readable placeholders."""
     if isinstance(content, str):
         return _BASE64_DATA_RE.sub('<base64 type="media" />', content)
     if not isinstance(content, list):
@@ -71,7 +73,6 @@ def _sanitize_content(content) -> str:
             continue
         if block.get("type") == "image_url":
             url = block.get("image_url", {}).get("url", "")
-            # extract mime category from "data:image/png;base64,..."
             tag = "media"
             m = re.match(r"data:(\w+)/", url)
             if m:
@@ -82,6 +83,7 @@ def _sanitize_content(content) -> str:
         else:
             parts.append(str(block))
     return "".join(parts)
+
 
 
 def _register(name: str, min_role: int, description: str, usage: str = ""):
@@ -112,8 +114,6 @@ async def handle_command(user_id: str, text: str, bot_api, event) -> bool:
     await handler(user_id, args, bot_api, event)
     return True
 
-
-# --- Developer commands ---
 
 @_register("help", ROLE_DEVELOPER, "列出可用指令，添加指令名称可查看指令详情", "/help [指令名]")
 async def _cmd_help(user_id, args, bot_api, event):
@@ -227,15 +227,13 @@ async def _cmd_log(user_id, args, bot_api, event):
     await bot_api.upload_private_file(user_id=event.user_id, file=path, name=os.path.basename(path))
 
 
-# --- Admin commands ---
-
 @_register("reload", ROLE_ADMIN, "重载配置和联系人缓存", "/reload [env|config|contact]")
 async def _cmd_reload(user_id, args, bot_api, event):
     target = args.strip()
     if target == "env":
         reload_env()
         agent._graph = None
-        media_processor.reset_transcription_llm()
+        media.reset_transcription_llm()
         await bot_api.post_private_msg(user_id=event.user_id, text="环境变量已重载")
     elif target == "config":
         agent._graph = None
@@ -246,7 +244,7 @@ async def _cmd_reload(user_id, args, bot_api, event):
     elif target == "":
         reload_env()
         agent._graph = None
-        media_processor.reset_transcription_llm()
+        media.reset_transcription_llm()
         await contact_cache.refresh_all()
         await bot_api.post_private_msg(user_id=event.user_id, text="环境变量、配置和联系人缓存已重载")
     else:
