@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, mock_open
 from langchain_core.messages import HumanMessage, AIMessage
-import src.core.commands as commands
+import src.commands.handlers as commands
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +37,7 @@ def test_load_permissions_duplicate_takes_lower_role(caplog):
     yaml_content = "admin:\n  - 111\ndeveloper:\n  - 111\n"
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         caplog.at_level(logging.WARNING, logger="src.core.commands"):
+         caplog.at_level(logging.WARNING, logger="src.commands.handlers"):
         perms = commands.load_permissions()
     assert perms["111"] == commands.ROLE_DEVELOPER
     assert any("111" in r.message for r in caplog.records)
@@ -172,7 +172,7 @@ async def test_token_command():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent._current_token_usage = 1234
         await commands.handle_command("222", "/token", api, event)
     text = api.post_private_msg.call_args[1]["text"]
@@ -190,7 +190,7 @@ async def test_raw_command_with_history():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent._history = [HumanMessage("hi"), AIMessage("hello")]
         await commands.handle_command("222", "/raw", api, event)
     text = api.post_private_msg.call_args[1]["text"]
@@ -205,7 +205,7 @@ async def test_raw_command_empty_history():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent._history = []
         await commands.handle_command("222", "/raw", api, event)
     assert "不存在可查看的消息" in api.post_private_msg.call_args[1]["text"]
@@ -223,9 +223,9 @@ async def test_status_command():
     mock_queue.qsize.return_value = 0
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent, \
-         patch("src.core.commands.scheduler") as mock_sched, \
-         patch("src.core.commands.scheduled_tasks") as mock_tasks:
+         patch("src.commands.handlers.agent") as mock_agent, \
+         patch("src.commands.handlers.scheduler") as mock_sched, \
+         patch("src.commands.handlers.scheduled_tasks") as mock_tasks:
         mock_agent.has_history.return_value = True
         mock_agent._history = [HumanMessage("hi")]
         mock_tasks._load_tasks.return_value = []
@@ -245,7 +245,7 @@ async def test_tasks_command_empty():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.scheduled_tasks") as mock_tasks:
+         patch("src.commands.handlers.scheduled_tasks") as mock_tasks:
         mock_tasks._load_tasks.return_value = []
         await commands.handle_command("222", "/tasks", api, event)
     assert "无活跃任务" in api.post_private_msg.call_args[1]["text"]
@@ -259,7 +259,7 @@ async def test_tasks_command_with_tasks():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.scheduled_tasks") as mock_tasks:
+         patch("src.commands.handlers.scheduled_tasks") as mock_tasks:
         mock_tasks._load_tasks.return_value = [
             {"name": "test_task", "type": "repeat", "trigger": "cron:0 9 * * *", "run_count": 3}
         ]
@@ -278,8 +278,8 @@ async def test_context_command():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent, \
-         patch("src.core.commands.tempfile") as mock_tmp:
+         patch("src.commands.handlers.agent") as mock_agent, \
+         patch("src.commands.handlers.tempfile") as mock_tmp:
         mock_agent._history = [HumanMessage("hi")]
         mock_tmp.NamedTemporaryFile.return_value.__enter__ = lambda s: s
         mock_tmp.NamedTemporaryFile.return_value.__exit__ = lambda s, *a: None
@@ -299,7 +299,7 @@ async def test_prompt_command():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent.PROMPT_PATH = "/fake/prompt.txt"
         await commands.handle_command("222", "/prompt", api, event)
     api.upload_private_file.assert_called_once()
@@ -343,8 +343,8 @@ async def test_reload_invalid_arg():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent, \
-         patch("src.core.commands.contact_cache") as mock_cc:
+         patch("src.commands.handlers.agent") as mock_agent, \
+         patch("src.commands.handlers.contact_cache") as mock_cc:
         mock_agent._graph = "something"
         await commands.handle_command("111", "/reload badarg", api, event)
     assert mock_agent._graph == "something"
@@ -359,9 +359,9 @@ async def test_reload_env():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent, \
-         patch("src.core.commands.media_processor") as mock_mp, \
-         patch("src.core.commands.load_dotenv") as mock_load_dotenv:
+         patch("src.commands.handlers.agent") as mock_agent, \
+         patch("src.commands.handlers.media") as mock_mp, \
+         patch("src.commands.handlers.load_dotenv") as mock_load_dotenv:
         mock_agent._graph = "something"
         await commands.handle_command("111", "/reload env", api, event)
         assert mock_agent._graph is None
@@ -377,7 +377,7 @@ async def test_reload_config():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent._graph = "something"
         await commands.handle_command("111", "/reload config", api, event)
         assert mock_agent._graph is None
@@ -391,7 +391,7 @@ async def test_reload_contact():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.contact_cache") as mock_cc:
+         patch("src.commands.handlers.contact_cache") as mock_cc:
         mock_cc.refresh_all = AsyncMock()
         await commands.handle_command("111", "/reload contact", api, event)
     mock_cc.refresh_all.assert_called_once()
@@ -404,10 +404,10 @@ async def test_reload_no_args():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent, \
-         patch("src.core.commands.media_processor") as mock_mp, \
-         patch("src.core.commands.contact_cache") as mock_cc, \
-         patch("src.core.commands.load_dotenv") as mock_load_dotenv:
+         patch("src.commands.handlers.agent") as mock_agent, \
+         patch("src.commands.handlers.media") as mock_mp, \
+         patch("src.commands.handlers.contact_cache") as mock_cc, \
+         patch("src.commands.handlers.load_dotenv") as mock_load_dotenv:
         mock_agent._graph = "something"
         mock_cc.refresh_all = AsyncMock()
         await commands.handle_command("111", "/reload", api, event)
@@ -432,7 +432,7 @@ async def test_summarize_command():
 
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent._history = [HumanMessage("x")]
         mock_agent._invoke = fake_invoke
         await commands.handle_command("111", "/summarize", api, event)
@@ -449,7 +449,7 @@ async def test_clear_context_command():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         await commands.handle_command("111", "/clearcontext", api, event)
     mock_agent.clear_history.assert_called_once()
 
@@ -464,7 +464,7 @@ async def test_context_command_empty_history():
     event.user_id = 222
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent._history = []
         await commands.handle_command("222", "/context", api, event)
     api.post_private_msg.assert_called_once()
@@ -482,8 +482,8 @@ async def test_context_command_type_names():
     written = []
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent, \
-         patch("src.core.commands.tempfile") as mock_tmp:
+         patch("src.commands.handlers.agent") as mock_agent, \
+         patch("src.commands.handlers.tempfile") as mock_tmp:
         mock_agent._history = [HumanMessage("hi"), AIMessage("hello")]
         mock_file = MagicMock()
         mock_file.__enter__ = lambda s: s
@@ -507,8 +507,8 @@ async def test_reload_no_args():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent, \
-         patch("src.core.commands.contact_cache") as mock_cc:
+         patch("src.commands.handlers.agent") as mock_agent, \
+         patch("src.commands.handlers.contact_cache") as mock_cc:
         mock_cc.refresh_all = AsyncMock()
         mock_agent._graph = "something"
         await commands.handle_command("111", "/reload", api, event)
@@ -526,7 +526,7 @@ async def test_summarize_command_empty_history():
     event.user_id = 111
     with patch("builtins.open", mock_open(read_data=yaml_content)), \
          patch("os.path.exists", return_value=True), \
-         patch("src.core.commands.agent") as mock_agent:
+         patch("src.commands.handlers.agent") as mock_agent:
         mock_agent._history = []
         await commands.handle_command("111", "/summarize", api, event)
     text = api.post_private_msg.call_args[1]["text"]

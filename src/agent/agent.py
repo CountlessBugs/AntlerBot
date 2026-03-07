@@ -50,7 +50,6 @@ def load_settings() -> dict:
     with open(SETTINGS_PATH, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     merged = {**_SETTINGS_DEFAULTS, **data}
-    # Deep-merge media config
     default_media = _SETTINGS_DEFAULTS.get("media", {})
     user_media = data.get("media", {})
     merged_media = {**default_media, **user_media}
@@ -158,7 +157,6 @@ def _ensure_initialized():
         return {}
 
     def _safe_for_summary(msgs):
-        """Strip trailing incomplete tool call sequences."""
         from langchain_core.messages import AIMessage, ToolMessage
         msgs = list(msgs)
         while msgs and isinstance(msgs[-1], ToolMessage):
@@ -175,7 +173,6 @@ def _ensure_initialized():
             last_turn = msgs[last_human:]
             to_summarize = _safe_for_summary(msgs[:last_human])
         else:
-            # no HumanMessage: summarize everything, keep nothing as last_turn
             to_summarize = _safe_for_summary(msgs)
             last_turn = []
         if not to_summarize:

@@ -3,9 +3,9 @@ import contextlib
 import logging
 from datetime import datetime, timedelta
 from apscheduler.triggers.date import DateTrigger
-from src.core import agent
-from src.core.message_parser import MediaTask, ParsedMessage
-from src.core.media_processor import _MEDIA_TAG
+from src.agent import agent
+from src.messaging.parser import MediaTask, ParsedMessage
+from src.messaging.media import _MEDIA_TAG
 
 logger = logging.getLogger(__name__)
 
@@ -69,18 +69,14 @@ async def _resolve_media_and_enqueue(
     parsed_message: ParsedMessage,
     reason: str = "user_message",
 ) -> None:
-    """Enqueue the message with loading placeholders immediately, then enqueue resolved media as follow-up messages."""
-    # 1. Enqueue immediately with loading placeholders intact (no media_tasks/content_blocks)
     await _enqueue_ready(priority, source_key, msg, reply_fn, None, reason)
 
-    # 2. Resolve media in the background
     settings = agent.load_settings()
     timeout = settings.get("media", {}).get("timeout", 60)
     results = await _resolve_media_tasks(parsed_message, timeout)
     if not results:
         return
 
-    # 3. Enqueue each resolved result as a new follow-up message
     for mt in parsed_message.media_tasks:
         if mt.placeholder_id not in results:
             continue
@@ -96,7 +92,6 @@ async def _resolve_media_and_enqueue(
 
 
 def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str | list:
-    """Build agent input content. Returns a list if there are passthrough content blocks, else a string."""
     if not parsed_message or not parsed_message.content_blocks:
         return msg
     return [
@@ -107,7 +102,6 @@ def _build_agent_content(msg: str, parsed_message: ParsedMessage | None) -> str 
 
 async def _enqueue_ready(priority: int, source_key: str, msg: str, reply_fn,
                          parsed_message: ParsedMessage | None = None, reason: str = "user_message") -> None:
-    """Enqueue a message that is ready to be processed (no pending media)."""
     global _processing, _counter
     async with _lock:
         _counter += 1
@@ -138,7 +132,6 @@ async def _process_loop():
                 _current_source = source_key
                 logger.info("processing | source=%s batch=%d", source_key, len(msgs))
                 combined_msg = "\n".join(msgs)
-                # Merge content_blocks from all parsed messages in the batch
                 all_blocks = []
                 for pm in parsed_msgs:
                     if pm and pm.content_blocks:
@@ -182,12 +175,11 @@ async def _on_session_summarize() -> None:
 
 async def _on_session_clear() -> None:
     agent.clear_history()
-    from src.core import contact_cache
+    from src.runtime import contact_cache
     await contact_cache.refresh_all()
 
 
 async def _resolve_media_tasks(pm: ParsedMessage, timeout: float) -> dict[str, str | dict]:
-    """Await all media tasks in parallel and return {placeholder_id: result} mapping."""
     if not pm.media_tasks:
         return {}
 

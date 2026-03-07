@@ -1,21 +1,12 @@
 import logging
-from src.core import scheduler, contact_cache, commands, message_parser
-from src.core.agent import load_settings
+from src.runtime import scheduler, contact_cache
+from src.commands import handlers as commands
+from src.messaging import parser as message_parser
+from src.agent.agent import load_settings
+from src.messaging.formatting import format_message, get_sender_name
 
 logger = logging.getLogger(__name__)
 
-
-def format_message(content: str, nickname: str, group_name: str | None = None) -> str:
-    if group_name:
-        return f"<sender>{nickname} [群聊-{group_name}]</sender>{content}"
-    return f"<sender>{nickname}</sender>{content}"
-
-
-async def get_sender_name(user_id: str, nickname: str, card: str = "") -> str:
-    remark = contact_cache.get_remark(user_id)
-    if card:
-        return f"{card} ({remark})" if remark else card
-    return remark or nickname
 
 
 def register(bot) -> None:

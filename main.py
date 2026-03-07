@@ -5,10 +5,11 @@ import os
 os.environ.setdefault("NCATBOT_CONFIG_PATH", "config/ncatbot.yaml")
 
 from ncatbot.core import BotClient
-from src.core import message_handler, scheduled_tasks
+from src.messaging import handlers as message_handlers
+from src.runtime import scheduled_tasks
 
 bot = BotClient()
-message_handler.register(bot)
+message_handlers.register(bot)
 
 @bot.on_startup()
 async def on_startup(event):

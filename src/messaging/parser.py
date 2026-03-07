@@ -8,7 +8,8 @@ from ncatbot.core.event.message_segment import (
     Text, At, AtAll, Face, Reply, Image, Record, Video, File,
 )
 
-from src.core import contact_cache, media_processor
+from src.runtime import contact_cache
+from src.messaging import media
 from src.data.face_map import FACE_MAP
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ _EXT_MEDIA_TYPE = {
 class MediaTask:
     placeholder_id: str
     task: asyncio.Task
-    media_type: str  # "image" / "audio" / "video" / "document"
+    media_type: str
     filename: str = ""
     placeholder_tag: str = ""
     passthrough: bool = False
@@ -45,8 +46,8 @@ _MEDIA_TYPE_MAP = {
 }
 
 
+
 def _detect_file_media_type(filename: str) -> str:
-    """Detect media type from file extension. Falls back to 'document'."""
     ext = os.path.splitext(filename)[1].lower()
     for media_type, exts in _EXT_MEDIA_TYPE.items():
         if ext in exts:
@@ -62,6 +63,7 @@ async def _parse_at(seg) -> str:
     return f"@{remark}" if remark else f"@{user_id}"
 
 
+
 def _parse_face(seg) -> str:
     try:
         face_id = int(seg.id)
@@ -71,8 +73,8 @@ def _parse_face(seg) -> str:
     return f'<face name="{name}" />' if name else "<face />"
 
 
+
 def _parse_reply_segment(seg) -> str:
-    """Parse a single segment from a reply message (lightweight, no async)."""
     if isinstance(seg, Text):
         return seg.text
     if isinstance(seg, Face):
@@ -82,7 +84,7 @@ def _parse_reply_segment(seg) -> str:
         None,
     )
     if media_type:
-        tag = media_processor._MEDIA_TAG.get(media_type, media_type)
+        tag = media._MEDIA_TAG.get(media_type, media_type)
         filename = seg.get_file_name() if hasattr(seg, "get_file_name") else ""
         fn_attr = f' filename="{filename}"' if filename else ""
         return f"<{tag}{fn_attr} />"
@@ -130,12 +132,11 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                 if isinstance(seg, File) and filename:
                     media_type = _detect_file_media_type(filename)
                 type_cfg = settings.get("media", {}).get(media_type, {})
-                tag = media_processor._MEDIA_TAG.get(media_type, media_type)
+                tag = media._MEDIA_TAG.get(media_type, media_type)
                 fn_attr = f' filename="{filename}"' if filename else ""
                 raw_size = getattr(seg, "file_size", None)
                 file_size = int(raw_size) if raw_size is not None else None
 
-                # Skip processing entirely if file exceeds max_file_size_mb.
                 max_file_mb = settings.get("media", {}).get("max_file_size_mb")
                 if max_file_mb is not None and file_size is not None:
                     if file_size > float(max_file_mb) * 1024 * 1024:
@@ -150,7 +151,6 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                     parts.append(f"<{tag}{fn_attr} />")
                     continue
 
-                # Determine mode: passthrough vs transcribe based on threshold.
                 threshold_mb = settings.get("media", {}).get("transcribe_threshold_mb")
                 use_passthrough = True
                 if threshold_mb is not None:
@@ -162,9 +162,6 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
 
                 max_direct_mb = settings.get("media", {}).get("sync_process_threshold_mb")
                 max_direct = max_direct_mb * 1024 * 1024 if max_direct_mb is not None else None
-                # Audio/video with max_duration may trigger ffmpeg trimming which
-                # blocks parse_message() long enough for later messages to be
-                # enqueued first, breaking reply ordering.  Force async flow.
                 may_trim = (
                     media_type in ("audio", "video")
                     and type_cfg.get("max_duration", 0) > 0
@@ -179,9 +176,7 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                 if use_passthrough:
                     if is_small:
                         try:
-                            block = await media_processor.passthrough_media_segment(
-                                seg, media_type, settings, source
-                            )
+                            block = await media.passthrough_media_segment(seg, media_type, settings, source)
                             if block:
                                 parts.append(f"<{tag}{fn_attr} />")
                                 content_blocks.append(block)
@@ -195,9 +190,7 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                         placeholder = f'<{tag} status="loading"{fn_attr} />'
                         parts.append(placeholder)
                         task = asyncio.create_task(
-                            media_processor.passthrough_media_segment(
-                                seg, media_type, settings, source
-                            )
+                            media.passthrough_media_segment(seg, media_type, settings, source)
                         )
                         media_tasks.append(MediaTask(
                             placeholder_id=pid, task=task, media_type=media_type,
@@ -207,9 +200,7 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                 else:
                     if is_small:
                         try:
-                            result = await media_processor.process_media_segment(
-                                seg, media_type, settings, source
-                            )
+                            result = await media.process_media_segment(seg, media_type, settings, source)
                             parts.append(result)
                         except Exception:
                             logger.warning("Failed to process small media segment", exc_info=True)
@@ -219,7 +210,7 @@ async def parse_message(message_array, settings: dict, source: str = "") -> Pars
                         placeholder = f'<{tag} status="loading"{fn_attr} />'
                         parts.append(placeholder)
                         task = asyncio.create_task(
-                            media_processor.process_media_segment(seg, media_type, settings, source)
+                            media.process_media_segment(seg, media_type, settings, source)
                         )
                         media_tasks.append(MediaTask(
                             placeholder_id=pid, task=task, media_type=media_type,
