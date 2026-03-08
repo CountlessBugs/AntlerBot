@@ -13,3 +13,4 @@
 | 2026-02-23 | [permissions-and-commands](permissions-and-commands/) | 3级权限系统与私聊指令系统，含精确 token 追踪 |
 | 2026-02-28 | [message-parsing](message-parsing/) | 消息解析：QQ 表情、消息回复、At解析；媒体文件直传与转述 |
 | 2026-03-06 | [module-refactor](module-refactor/) | 将原 `src/core` 拆分为职责明确的新模块包并移除 legacy core 包 |
+| 2026-03-08 | [mem0-doc-mirror](mem0-doc-mirror/) | Build a local Markdown mirror for Python-relevant mem0 docs |
