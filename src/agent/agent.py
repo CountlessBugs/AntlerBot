@@ -139,6 +139,12 @@ _PROVIDER_PACKAGES = {
 }
 
 
+def clear_history():
+    global _history
+    _history = []
+    memory_mod.reset_session_memory_state()
+
+
 def _with_tool_logging(t):
     orig = t.ainvoke
     async def logged(input, config=None, **kwargs):
@@ -195,7 +201,7 @@ def _ensure_initialized():
 
     def finalize_node(state: _State) -> dict:
         global _history
-        _history = list(state["messages"])
+        _history = [msg for msg in state["messages"] if not memory_mod.is_temporary_auto_recall_message(msg)]
         return {}
 
     def _safe_for_summary(msgs):
@@ -234,7 +240,7 @@ def _ensure_initialized():
         wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
         settings = load_settings()
         if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
-            memory_mod.reset_seen_memory_ids()
+            memory_mod.reset_session_memory_state()
         if (
             settings.get("memory", {}).get("enabled")
             and settings.get("memory", {}).get("auto_store_enabled")
@@ -264,7 +270,7 @@ def _ensure_initialized():
         summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
         settings = load_settings()
         if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
-            memory_mod.reset_seen_memory_ids()
+            memory_mod.reset_session_memory_state()
         if (
             settings.get("memory", {}).get("enabled")
             and settings.get("memory", {}).get("auto_store_enabled")
@@ -357,6 +363,7 @@ async def _invoke(
                     logger.warning("mem0 auto recall failed", exc_info=True)
                     recall_message = None
                 if recall_message is not None:
+                    recall_message = memory_mod.ensure_temporary_auto_recall_message(recall_message)
                     initial = _history + [recall_message, current_message]
 
         def _emit(text: str):
@@ -403,6 +410,9 @@ async def _invoke(
                     buffer = buffer[end + len("</no-split>"):]
                     in_no_split = False
 
+        if reason == "user_message":
+            _history[:] = [msg for msg in _history if not memory_mod.is_temporary_auto_recall_message(msg)]
+
         if in_no_split:
             seg = _emit(buffer)
             if seg:
@@ -422,8 +432,3 @@ async def _invoke(
 
 def has_history() -> bool:
     return bool(_history)
-
-
-def clear_history() -> None:
-    global _history
-    _history = []

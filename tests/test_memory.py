@@ -42,7 +42,7 @@ def test_filter_search_results_applies_threshold_max_count_and_seen_ids():
         {"id": "b", "memory": "B", "score": 0.8},
         {"id": "c", "memory": "C", "score": 0.7},
     ]
-    filtered = memory.filter_search_results(results, threshold=0.8, max_memories=2, seen_ids={"a"})
+    filtered = memory.filter_search_results(results, threshold=0.8, max_memories=2, blocked_ids={"a"})
     assert [item["id"] for item in filtered] == ["b"]
 
 
@@ -61,6 +61,120 @@ def test_recall_result_format_uses_plain_effort_label():
 
 def test_recall_result_format_handles_empty_results():
     assert memory.format_recall_result([], effort_label="高") == "未检索到符合条件的长期记忆。"
+
+
+def test_build_recall_metadata_update_increments_count_and_sets_timestamp():
+    current = {"recall_count": 2, "last_recalled_at": "2026-03-01T00:00:00Z", "tag": "x"}
+    updated = memory.build_recall_metadata_update(current, recalled_at="2026-03-08T12:00:00Z")
+    assert updated["recall_count"] == 3
+    assert updated["last_recalled_at"] == "2026-03-08T12:00:00Z"
+    assert updated["tag"] == "x"
+
+
+def test_build_recall_metadata_update_defaults_count_when_missing():
+    updated = memory.build_recall_metadata_update({}, recalled_at="2026-03-08T12:00:00Z")
+    assert updated["recall_count"] == 1
+    assert updated["last_recalled_at"] == "2026-03-08T12:00:00Z"
+
+
+def test_auto_recall_allows_repeat_results_but_counts_once_per_session():
+    class RepeatClient:
+        def search(self, query, **kwargs):
+            return {"results": [{"id": "a", "memory": "A", "score": 0.9}]}
+
+    memory.reset_counted_memory_ids()
+    history = [HumanMessage("你好")]
+    settings = {"memory": {"agent_id": "antlerbot", "auto_recall_query_token_limit": 50, "auto_recall_score_threshold": 0.5, "auto_recall_max_memories": 5, "auto_recall_system_prefix": "前缀"}}
+
+    with patch("src.agent.memory.get_memory_client", return_value=RepeatClient()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True) as update_mock:
+        first = memory.build_auto_recall_system_message(history, settings)
+        second = memory.build_auto_recall_system_message(history, settings)
+
+    assert first is not None
+    assert second is not None
+    assert memory.get_counted_memory_ids() == {"a"}
+    assert update_mock.call_count == 1
+
+
+def test_filter_search_results_excludes_context_locked_ids():
+    results = [
+        {"id": "a", "memory": "A", "score": 0.9},
+        {"id": "b", "memory": "B", "score": 0.8},
+    ]
+    filtered = memory.filter_search_results(results, threshold=0.0, max_memories=5, blocked_ids={"a"})
+    assert [item["id"] for item in filtered] == ["b"]
+
+
+def test_lock_memory_ids_for_session_blocks_future_auto_recall_results():
+    class RepeatClient:
+        def search(self, query, **kwargs):
+            return {"results": [
+                {"id": "a", "memory": "A", "score": 0.9},
+                {"id": "b", "memory": "B", "score": 0.8},
+            ]}
+
+    memory.reset_context_locked_memory_ids()
+    memory.lock_memory_ids_for_session([{"id": "a"}])
+    history = [HumanMessage("你好")]
+    settings = {"memory": {"agent_id": "antlerbot", "auto_recall_query_token_limit": 50, "auto_recall_score_threshold": 0.5, "auto_recall_max_memories": 5, "auto_recall_system_prefix": "前缀"}}
+
+    with patch("src.agent.memory.get_memory_client", return_value=RepeatClient()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        message = memory.build_auto_recall_system_message(history, settings)
+
+    assert message is not None
+    assert "- A" not in message.content
+    assert "- B" in message.content
+
+
+class DummyMetadataClient:
+    def __init__(self, payload):
+        self.payload = payload
+        self.updated = None
+
+    def get(self, memory_id):
+        return self.payload
+
+    def update(self, **kwargs):
+        self.updated = kwargs
+
+
+def test_try_update_memory_recall_metadata_returns_false_when_client_methods_missing():
+    class NoUpdateClient:
+        pass
+
+    assert memory.try_update_memory_recall_metadata(NoUpdateClient(), "mem-1", "2026-03-08T12:00:00Z") is False
+
+
+def test_try_update_memory_recall_metadata_returns_false_when_text_is_missing():
+    client = DummyMetadataClient({"metadata": {"recall_count": 1}})
+    assert memory.try_update_memory_recall_metadata(client, "mem-1", "2026-03-08T12:00:00Z") is False
+    assert client.updated is None
+
+
+def test_try_update_memory_recall_metadata_updates_metadata_when_supported():
+    client = DummyMetadataClient({"memory": "记忆文本", "metadata": {"recall_count": 1, "tag": "x"}})
+    assert memory.try_update_memory_recall_metadata(client, "mem-1", "2026-03-08T12:00:00Z") is True
+    assert client.updated["memory_id"] == "mem-1"
+    assert client.updated["text"] == "记忆文本"
+    assert client.updated["metadata"]["recall_count"] == 2
+    assert client.updated["metadata"]["last_recalled_at"] == "2026-03-08T12:00:00Z"
+    assert client.updated["metadata"]["tag"] == "x"
+
+
+def test_try_update_memory_recall_metadata_returns_false_when_get_result_is_not_mapping():
+    client = DummyMetadataClient(["not-a-dict"])
+    assert memory.try_update_memory_recall_metadata(client, "mem-1", "2026-03-08T12:00:00Z") is False
+    assert client.updated is None
+
+
+def test_reset_session_memory_state_clears_counted_and_locked_ids():
+    memory.mark_counted_memory_ids([{"id": "a"}])
+    memory.lock_memory_ids_for_session([{"id": "b"}])
+    memory.reset_session_memory_state()
+    assert memory.get_counted_memory_ids() == set()
+    assert memory.get_context_locked_memory_ids() == set()
 
 
 def test_store_summary_async_logs_failure(caplog):

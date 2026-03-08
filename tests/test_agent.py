@@ -189,6 +189,28 @@ async def test_invoke_accepts_multimodal_content_list():
 
 
 @pytest.mark.anyio
+async def test_invoke_keeps_auto_recall_message_out_of_persistent_history():
+    def fake_astream_events(state, version):
+        agent_mod._history = state["messages"] + [AIMessage("reply")]
+        return _aiter([_make_stream_event("reply")])
+
+    mock_graph = MagicMock()
+    mock_graph.astream_events.side_effect = fake_astream_events
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph), \
+         patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True}}), \
+         patch("src.agent.agent.memory_mod.build_auto_recall_system_message", return_value=SystemMessage("长期记忆")):
+        async for _ in agent_mod._invoke("user_message", "hello"):
+            pass
+
+    assert len(agent_mod._history) == 2
+    assert isinstance(agent_mod._history[0], HumanMessage)
+    assert agent_mod._history[0].content == "hello"
+    assert isinstance(agent_mod._history[1], AIMessage)
+    assert all(not (isinstance(msg, SystemMessage) and msg.content == "长期记忆") for msg in agent_mod._history)
+
+
+@pytest.mark.anyio
 async def test_invoke_accumulates_history():
     def fake_astream_events(s, version):
         agent_mod._history = s["messages"] + [AIMessage("reply")]
@@ -286,6 +308,14 @@ def test_clear_history():
     assert agent_mod._history == []
 
 
+def test_clear_history_resets_session_memory_state():
+    agent_mod._history = [HumanMessage("x")]
+    with patch("src.agent.agent.memory_mod.reset_session_memory_state") as reset_mock:
+        agent_mod.clear_history()
+    assert agent_mod._history == []
+    reset_mock.assert_called_once()
+
+
 @pytest.mark.anyio
 async def test_invoke_complex_reschedule_does_not_touch_history():
     agent_mod._history = [HumanMessage("existing")]
@@ -376,7 +406,7 @@ async def test_summarize_all_schedules_async_memory_store_and_resets_seen_ids():
     with patch("src.agent.agent.init_chat_model", return_value=mock_llm), \
          patch.dict("os.environ", {"LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o"}), \
          patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True, "auto_store_enabled": True}}) as load_settings_mock, \
-         patch("src.agent.agent.memory_mod.reset_seen_memory_ids") as reset_mock, \
+         patch("src.agent.agent.memory_mod.reset_session_memory_state") as reset_mock, \
          patch("src.agent.agent.memory_mod.store_summary_async", side_effect=fake_store_summary_async) as store_mock, \
          patch("src.agent.agent.asyncio.create_task", wraps=asyncio.create_task) as create_task_mock:
         agent_mod._ensure_initialized()

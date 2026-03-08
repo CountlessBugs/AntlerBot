@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import UTC, datetime
 
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately
@@ -17,7 +18,9 @@ _MEDIA_SELF_CLOSING_TAG_RE = re.compile(
 )
 _XML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
-_SEEN_MEMORY_IDS: set[str] = set()
+_TEMP_AUTO_RECALL_MARKER = "__antlerbot_auto_recall__"
+_COUNTED_MEMORY_IDS: set[str] = set()
+_CONTEXT_LOCKED_MEMORY_IDS: set[str] = set()
 _MEMORY_CLIENT = None
 
 
@@ -85,11 +88,12 @@ def get_memory_client(settings: dict):
     return _MEMORY_CLIENT
 
 
-def filter_search_results(results, threshold: float, max_memories: int, seen_ids: set[str]):
+def filter_search_results(results, threshold: float, max_memories: int, blocked_ids: set[str] | None = None):
+    blocked_ids = blocked_ids or set()
     filtered = []
     for item in results:
         item_id = item.get("id")
-        if item_id and item_id in seen_ids:
+        if item_id and item_id in blocked_ids:
             continue
         if item.get("score", 0) < threshold:
             continue
@@ -111,6 +115,98 @@ def format_auto_recall_message(results, prefix: str) -> SystemMessage | None:
     if len(lines) == 1:
         return None
     return SystemMessage("\n".join(lines))
+
+
+def build_recall_metadata_update(current_metadata: dict | None, recalled_at: str) -> dict:
+    if not isinstance(current_metadata, dict):
+        current_metadata = {}
+    metadata = dict(current_metadata)
+    current_count = metadata.get("recall_count", 0)
+    try:
+        current_count = int(current_count)
+    except (TypeError, ValueError):
+        current_count = 0
+    metadata["recall_count"] = current_count + 1
+    metadata["last_recalled_at"] = recalled_at
+    return metadata
+
+
+def try_update_memory_recall_metadata(client, memory_id: str, recalled_at: str) -> bool:
+    get_method = getattr(client, "get", None)
+    update_method = getattr(client, "update", None)
+    if not callable(get_method) or not callable(update_method):
+        logger.info("mem0 client does not support get/update metadata operations")
+        return False
+
+    try:
+        current = get_method(memory_id=memory_id)
+        if not isinstance(current, dict):
+            logger.info("mem0 get did not return a mapping for recall metadata update")
+            return False
+
+        text = current.get("memory") or current.get("text")
+        if not text:
+            logger.info("mem0 recall metadata update skipped because original memory text is unavailable")
+            return False
+
+        metadata = build_recall_metadata_update(current.get("metadata", {}), recalled_at)
+        update_method(memory_id=memory_id, text=text, metadata=metadata)
+        return True
+    except Exception:
+        logger.warning("mem0 recall metadata update failed", exc_info=True)
+        return False
+
+
+def lock_memory_ids_for_session(results) -> None:
+    for item in results:
+        item_id = item.get("id")
+        if item_id:
+            _CONTEXT_LOCKED_MEMORY_IDS.add(str(item_id))
+
+
+def reset_context_locked_memory_ids() -> None:
+    _CONTEXT_LOCKED_MEMORY_IDS.clear()
+
+
+def get_context_locked_memory_ids() -> set[str]:
+    return set(_CONTEXT_LOCKED_MEMORY_IDS)
+
+
+def reset_session_memory_state() -> None:
+    reset_counted_memory_ids()
+    reset_context_locked_memory_ids()
+
+
+def mark_counted_memory_ids(results) -> None:
+    for item in results:
+        item_id = item.get("id")
+        if item_id:
+            _COUNTED_MEMORY_IDS.add(str(item_id))
+
+
+def reset_counted_memory_ids() -> None:
+    _COUNTED_MEMORY_IDS.clear()
+
+
+def get_counted_memory_ids() -> set[str]:
+    return set(_COUNTED_MEMORY_IDS)
+
+
+def is_temporary_auto_recall_message(message: BaseMessage) -> bool:
+    return isinstance(message, SystemMessage) and message.additional_kwargs.get(_TEMP_AUTO_RECALL_MARKER) is True
+
+
+def ensure_temporary_auto_recall_message(message: SystemMessage | None) -> SystemMessage | None:
+    if message is None:
+        return None
+    if is_temporary_auto_recall_message(message):
+        return message
+    return SystemMessage(message.content, additional_kwargs={**message.additional_kwargs, _TEMP_AUTO_RECALL_MARKER: True})
+
+
+def build_temporary_auto_recall_message(results, prefix: str) -> SystemMessage | None:
+    message = format_auto_recall_message(results, prefix)
+    return ensure_temporary_auto_recall_message(message)
 
 
 def get_effort_config(settings: dict, effort: str) -> tuple[float, int, str]:
@@ -143,7 +239,19 @@ def build_recall_tool(settings: dict):
         threshold, max_memories, effort_label = get_effort_config(settings, effort)
         raw_results = client.search(query, agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"))
         results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
-        filtered = filter_search_results(results, threshold=threshold, max_memories=max_memories, seen_ids=set())
+        filtered = filter_search_results(
+            results,
+            threshold=threshold,
+            max_memories=max_memories,
+            blocked_ids=get_context_locked_memory_ids(),
+        )
+        recalled_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        for item in filtered:
+            item_id = item.get("id")
+            if item_id and str(item_id) not in _COUNTED_MEMORY_IDS:
+                try_update_memory_recall_metadata(client, str(item_id), recalled_at)
+        mark_counted_memory_ids(filtered)
+        lock_memory_ids_for_session(filtered)
         return format_recall_result(filtered, effort_label)
 
     return recall_memory
@@ -162,10 +270,21 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
         results,
         threshold=memory_settings.get("auto_recall_score_threshold", 0.75),
         max_memories=memory_settings.get("auto_recall_max_memories", 5),
-        seen_ids=get_seen_memory_ids(),
+        blocked_ids=get_context_locked_memory_ids(),
     )
-    mark_seen_memory_ids(filtered)
-    return format_auto_recall_message(filtered, memory_settings.get("auto_recall_system_prefix", "以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。"))
+    if not filtered:
+        return None
+
+    recalled_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    for item in filtered:
+        item_id = item.get("id")
+        if item_id and str(item_id) not in _COUNTED_MEMORY_IDS:
+            try_update_memory_recall_metadata(client, str(item_id), recalled_at)
+    mark_counted_memory_ids(filtered)
+    return build_temporary_auto_recall_message(
+        filtered,
+        memory_settings.get("auto_recall_system_prefix", "以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。"),
+    )
 
 
 async def store_summary_async(summary_text: str, settings: dict) -> None:
@@ -180,15 +299,15 @@ async def store_summary_async(summary_text: str, settings: dict) -> None:
 
 
 def mark_seen_memory_ids(results) -> None:
-    for item in results:
-        item_id = item.get("id")
-        if item_id:
-            _SEEN_MEMORY_IDS.add(str(item_id))
+    """兼容旧测试/旧调用名；语义已变为会话内 recall 计数。"""
+    mark_counted_memory_ids(results)
 
 
 def reset_seen_memory_ids() -> None:
-    _SEEN_MEMORY_IDS.clear()
+    """兼容旧测试/旧调用名；语义已变为重置会话内 recall 计数。"""
+    reset_counted_memory_ids()
 
 
 def get_seen_memory_ids() -> set[str]:
-    return set(_SEEN_MEMORY_IDS)
+    """兼容旧测试/旧调用名；语义已变为读取会话内 recall 计数集合。"""
+    return get_counted_memory_ids()
