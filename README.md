@@ -50,8 +50,18 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `TRANSCRIPTION_MODEL` | 可选，媒体转录使用的模型名称（不设则复用 `LLM_MODEL`） |
 | `TRANSCRIPTION_API_KEY` | 可选，转录模型的 API Key（不设则复用 `OPENAI_API_KEY`） |
 | `TRANSCRIPTION_BASE_URL` | 可选，转录模型的 API 端点（不设则复用 `OPENAI_BASE_URL`） |
+| `MEM0_LLM_PROVIDER` | 可选，Mem0 使用的模型供应商（不设则回退到 `LLM_PROVIDER`） |
+| `MEM0_LLM_MODEL` | 可选，Mem0 使用的模型名称（不设则回退到 `LLM_MODEL`） |
+| `MEM0_LLM_API_KEY` | 可选，Mem0 LLM 的 API Key（不设则回退到 `OPENAI_API_KEY`） |
+| `MEM0_LLM_BASE_URL` | 可选，Mem0 LLM 的 API 端点（不设则回退到 `OPENAI_BASE_URL`） |
+| `MEM0_EMBEDDER_PROVIDER` | 可选，Mem0 embedding 模型供应商（默认 `openai`） |
+| `MEM0_EMBEDDER_MODEL` | 可选，Mem0 embedding 模型名称（默认 `text-embedding-3-small`） |
+| `MEM0_EMBEDDER_API_KEY` | 可选，Mem0 embedding 的 API Key（不设则回退到 `OPENAI_API_KEY`） |
+| `MEM0_EMBEDDER_BASE_URL` | 可选，Mem0 embedding 的 API 端点（不设则回退到 `OPENAI_BASE_URL`） |
 
 > 使用非 OpenAI 供应商时，API Key 应设置为对应的环境变量（如 `ANTHROPIC_API_KEY`），`OPENAI_API_KEY` 仅在使用 OpenAI 兼容接口时需要。
+>
+> Mem0 的模型配置方式与转录模型类似：可通过 `MEM0_LLM_*` 单独指定长期记忆使用的 LLM；若未设置，则回退到主模型 `LLM_PROVIDER` / `LLM_MODEL` 及对应连接信息。Mem0 embedding 默认使用 `openai` 的 `text-embedding-3-small`，也可通过 `MEM0_EMBEDDER_*` 单独覆盖；若未单独设置连接信息，则回退到 `OPENAI_API_KEY` / `OPENAI_BASE_URL`。
 
 编辑 `config/agent/prompt.txt` 设置机器人的系统提示词。
 
