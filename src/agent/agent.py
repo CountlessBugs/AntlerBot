@@ -40,12 +40,40 @@ _SETTINGS_DEFAULTS = {
         "video": {"enabled": False, "max_duration": 30, "trim_over_limit": True},
         "document": {"enabled": False},
     },
+    "memory": {
+        "enabled": False,
+        "agent_id": "antlerbot",
+        "auto_recall_enabled": True,
+        "auto_store_enabled": True,
+        "auto_recall_query_token_limit": 400,
+        "auto_recall_score_threshold": 0.75,
+        "auto_recall_max_memories": 5,
+        "auto_recall_system_prefix": "以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。",
+        "recall_low_score_threshold": 0.85,
+        "recall_low_max_memories": 3,
+        "recall_medium_score_threshold": 0.70,
+        "recall_medium_max_memories": 6,
+        "recall_high_score_threshold": 0.55,
+        "recall_high_max_memories": 10,
+        "reset_seen_on_summary": True,
+    },
 }
 
 
 def load_settings() -> dict:
     if not os.path.exists(SETTINGS_PATH):
-        return dict(_SETTINGS_DEFAULTS)
+        return {
+            **_SETTINGS_DEFAULTS,
+            "media": {
+                **_SETTINGS_DEFAULTS["media"],
+                **{
+                    key: dict(value)
+                    for key, value in _SETTINGS_DEFAULTS["media"].items()
+                    if isinstance(value, dict)
+                },
+            },
+            "memory": dict(_SETTINGS_DEFAULTS["memory"]),
+        }
     import yaml
     with open(SETTINGS_PATH, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
@@ -56,6 +84,9 @@ def load_settings() -> dict:
     for key in ("image", "audio", "video", "document"):
         merged_media[key] = {**default_media.get(key, {}), **user_media.get(key, {})}
     merged["media"] = merged_media
+    default_memory = _SETTINGS_DEFAULTS.get("memory", {})
+    user_memory = data.get("memory", {})
+    merged["memory"] = {**default_memory, **user_memory}
     return merged
 
 _llm = None

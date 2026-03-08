@@ -184,6 +184,27 @@ async def test_invoke_executes_sequentially():
     assert order == ["start", "end", "start", "end"]
 
 
+def test_load_settings_includes_memory_defaults_when_missing(tmp_path):
+    with patch("src.agent.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
+        result = agent_mod.load_settings()
+    assert result["memory"]["enabled"] is False
+    assert result["memory"]["agent_id"] == "antlerbot"
+    assert result["memory"]["auto_recall_query_token_limit"] == 400
+
+
+def test_load_settings_merges_memory_nested_config(tmp_path):
+    f = tmp_path / "settings.yaml"
+    f.write_text(
+        "memory:\n  enabled: true\n  recall_high_max_memories: 12\n",
+        encoding="utf-8",
+    )
+    with patch("src.agent.agent.SETTINGS_PATH", str(f)):
+        result = agent_mod.load_settings()
+    assert result["memory"]["enabled"] is True
+    assert result["memory"]["recall_high_max_memories"] == 12
+    assert result["memory"]["auto_recall_max_memories"] == 5
+
+
 def test_load_settings_defaults_when_missing(tmp_path):
     with patch("src.agent.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
         result = agent_mod.load_settings()

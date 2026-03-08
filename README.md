@@ -63,6 +63,17 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `timeout_summarize_seconds` | 无消息多少秒后触发会话摘要 |
 | `timeout_clear_seconds` | 会话摘要后多少秒清空历史 |
 | `reply_quote_truncate_length` | 回复消息引用的最大截断长度 |
+| `memory.enabled` | 是否启用 Mem0 长期记忆 |
+| `memory.agent_id` | Mem0 中用于隔离机器人记忆空间的 agent_id |
+| `memory.auto_recall_enabled` | 是否在用户发言前自动检索相关长期记忆 |
+| `memory.auto_store_enabled` | 是否在摘要后异步写入长期记忆 |
+| `memory.auto_recall_query_token_limit` | 自动检索查询窗口的近似 token 上限 |
+| `memory.auto_recall_score_threshold` | 自动检索结果的最低相似度阈值 |
+| `memory.auto_recall_max_memories` | 自动检索最多注入多少条长期记忆 |
+| `memory.auto_recall_system_prefix` | 自动检索注入到模型前的系统提示前缀 |
+| `memory.recall_<等级>_score_threshold` | 手动 recall_memory 工具在对应 effort 下的最低相似度阈值 |
+| `memory.recall_<等级>_max_memories` | 手动 recall_memory 工具在对应 effort 下的最大返回条数 |
+| `memory.reset_seen_on_summary` | 摘要后是否重置已注入过的长期记忆 ID |
 | `media.timeout` | 媒体处理超时时间（秒） |
 | `media.max_file_size_mb` | 超过此大小的文件直接跳过 |
 | `media.transcribe_threshold_mb` | 直传/转录分界阈值（设为 0 始终转录，不设始终直传） |
