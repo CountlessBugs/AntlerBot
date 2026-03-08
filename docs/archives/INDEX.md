@@ -15,3 +15,4 @@
 | 2026-03-06 | [module-refactor](module-refactor/) | 将原 `src/core` 拆分为职责明确的新模块包并移除旧版 core 包 |
 | 2026-03-08 | [mem0-doc-mirror](mem0-doc-mirror/) | 为 mem0 的 Python 相关文档构建本地 Markdown 镜像 |
 | 2026-03-08 | [mem0-long-term-memory](mem0-long-term-memory/) | 增加基于 Mem0 的长期记忆能力，并补充会话级召回语义、元数据统计与归档记录 |
+| 2026-03-08 | [mem0-model-configuration](mem0-model-configuration/) | 为 Mem0 增加独立的 LLM 与 embedding 环境变量配置及回退逻辑 |

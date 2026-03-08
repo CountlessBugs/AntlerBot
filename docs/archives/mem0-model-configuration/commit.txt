@@ -1,0 +1,2 @@
+a6bc7d1 feat: allow mem0 model overrides via env
+9e6f675 docs: document mem0 model environment variables
