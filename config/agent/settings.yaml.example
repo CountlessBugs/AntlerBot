@@ -23,7 +23,7 @@ memory:
   auto_recall_query_token_limit: 400
 
   # 自动检索的最低相似度阈值
-  auto_recall_score_threshold: 0.75
+  auto_recall_score_threshold: 0.85
 
   # 自动检索最多注入多少条长期记忆
   auto_recall_max_memories: 5
@@ -32,7 +32,7 @@ memory:
   auto_recall_system_prefix: 以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。
 
   # 手动 recall_memory 工具在不同 effort 下的阈值与条数配置
-  recall_low_score_threshold: 0.85
+  recall_low_score_threshold: 0.80
   recall_low_max_memories: 3
   recall_medium_score_threshold: 0.70
   recall_medium_max_memories: 6
