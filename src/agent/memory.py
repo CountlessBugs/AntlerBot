@@ -21,7 +21,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _TEMP_AUTO_RECALL_MARKER = "__antlerbot_auto_recall__"
 _COUNTED_MEMORY_IDS: set[str] = set()
 _CONTEXT_LOCKED_MEMORY_IDS: set[str] = set()
-_MEMORY_CLIENT = None
+_MEMORY_STORE = None
 
 
 def normalize_query_text(text: str) -> str:
@@ -79,13 +79,13 @@ def build_auto_recall_query(messages: list[BaseMessage], token_limit: int) -> st
     return " ".join(parts) if parts else None
 
 
-def get_memory_client(settings: dict):
-    global _MEMORY_CLIENT
-    if _MEMORY_CLIENT is None:
+def get_memory_store(settings: dict):
+    global _MEMORY_STORE
+    if _MEMORY_STORE is None:
         from mem0 import Memory
 
-        _MEMORY_CLIENT = Memory()
-    return _MEMORY_CLIENT
+        _MEMORY_STORE = Memory()
+    return _MEMORY_STORE
 
 
 def filter_search_results(results, threshold: float, max_memories: int, blocked_ids: set[str] | None = None):
@@ -131,11 +131,11 @@ def build_recall_metadata_update(current_metadata: dict | None, recalled_at: str
     return metadata
 
 
-def try_update_memory_recall_metadata(client, memory_id: str, recalled_at: str) -> bool:
-    get_method = getattr(client, "get", None)
-    update_method = getattr(client, "update", None)
+def try_update_memory_recall_metadata(store, memory_id: str, recalled_at: str) -> bool:
+    get_method = getattr(store, "get", None)
+    update_method = getattr(store, "update", None)
     if not callable(get_method) or not callable(update_method):
-        logger.info("mem0 client does not support get/update metadata operations")
+        logger.info("mem0 memory store does not support get/update metadata operations")
         return False
 
     try:
@@ -150,7 +150,7 @@ def try_update_memory_recall_metadata(client, memory_id: str, recalled_at: str) 
             return False
 
         metadata = build_recall_metadata_update(current.get("metadata", {}), recalled_at)
-        update_method(memory_id=memory_id, text=text, metadata=metadata)
+        update_method(memory_id, {"memory": text, "metadata": metadata})
         return True
     except Exception:
         logger.warning("mem0 recall metadata update failed", exc_info=True)
@@ -235,9 +235,9 @@ def build_recall_tool(settings: dict):
     @tool("recall_memory", parse_docstring=False)
     def recall_memory(query: str, effort: str = "medium") -> str:
         """按指定努力程度检索与当前问题相关的长期记忆。"""
-        client = get_memory_client(settings)
+        store = get_memory_store(settings)
         threshold, max_memories, effort_label = get_effort_config(settings, effort)
-        raw_results = client.search(query, agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"))
+        raw_results = store.search(query, agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"))
         results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
         filtered = filter_search_results(
             results,
@@ -249,7 +249,7 @@ def build_recall_tool(settings: dict):
         for item in filtered:
             item_id = item.get("id")
             if item_id and str(item_id) not in _COUNTED_MEMORY_IDS:
-                try_update_memory_recall_metadata(client, str(item_id), recalled_at)
+                try_update_memory_recall_metadata(store, str(item_id), recalled_at)
         mark_counted_memory_ids(filtered)
         lock_memory_ids_for_session(filtered)
         return format_recall_result(filtered, effort_label)
@@ -263,8 +263,8 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
     if not query:
         return None
 
-    client = get_memory_client(settings)
-    raw_results = client.search(query, agent_id=memory_settings.get("agent_id", "antlerbot"))
+    store = get_memory_store(settings)
+    raw_results = store.search(query, agent_id=memory_settings.get("agent_id", "antlerbot"))
     results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
     filtered = filter_search_results(
         results,
@@ -279,7 +279,7 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
     for item in filtered:
         item_id = item.get("id")
         if item_id and str(item_id) not in _COUNTED_MEMORY_IDS:
-            try_update_memory_recall_metadata(client, str(item_id), recalled_at)
+            try_update_memory_recall_metadata(store, str(item_id), recalled_at)
     mark_counted_memory_ids(filtered)
     return build_temporary_auto_recall_message(
         filtered,
@@ -289,8 +289,8 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
 
 async def store_summary_async(summary_text: str, settings: dict) -> None:
     try:
-        client = get_memory_client(settings)
-        client.add(
+        store = get_memory_store(settings)
+        store.add(
             [{"role": "user", "content": summary_text}],
             agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"),
         )

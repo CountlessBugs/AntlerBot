@@ -12,7 +12,7 @@ Core framework docs are in `docs/frameworks/`. Read relevant files before implem
 
 NcatBot is the core framework for interacting with QQ. Docs: `docs/frameworks/NcatBot.md`.
 
-Mem0 is the core framework for long-term memory system. Docs: `docs/frameworks/Mem0.md`.
+Mem0 is the core framework for long-term memory system. Docs: `docs/frameworks/Mem0.md`. This project uses the local `mem0.Memory` implementation only, not `MemoryClient`.
 
 # Plans and Archives
 
