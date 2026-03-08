@@ -12,6 +12,8 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing import Annotated, AsyncGenerator, Literal, TypedDict
 
+from src.agent import memory as memory_mod
+
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = os.path.normpath(
@@ -146,9 +148,17 @@ def _with_tool_logging(t):
     return t
 
 
+def _resolve_registered_tools() -> list:
+    settings = load_settings()
+    tools = list(_tools)
+    if settings.get("memory", {}).get("enabled"):
+        tools.append(memory_mod.build_recall_tool(settings))
+    return [_with_tool_logging(t) for t in tools]
+
+
 def register_tools(tools: list) -> None:
     global _tools, _graph
-    _tools = [_with_tool_logging(t) for t in tools]
+    _tools = list(tools)
     _graph = None
 
 
@@ -171,7 +181,8 @@ def _ensure_initialized():
             f"Install it with:\n  pip install {pkg}"
         ) from None
 
-    llm_with_tools = _llm.bind_tools(_tools) if _tools else _llm
+    resolved_tools = _resolve_registered_tools()
+    llm_with_tools = _llm.bind_tools(resolved_tools) if resolved_tools else _llm
 
     def llm_node(state: _State) -> dict:
         msgs = state["messages"]
@@ -196,7 +207,7 @@ def _ensure_initialized():
             msgs.pop()
         return msgs
 
-    def summarize_node(state: _State) -> dict:
+    async def summarize_node(state: _State) -> dict:
         global _history, _current_token_usage
         msgs = state["messages"]
         last_human = next((i for i in range(len(msgs) - 1, -1, -1) if isinstance(msgs[i], (HumanMessage, SystemMessage))), None)
@@ -221,10 +232,19 @@ def _ensure_initialized():
             )
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
+        settings = load_settings()
+        if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
+            memory_mod.reset_seen_memory_ids()
+        if (
+            settings.get("memory", {}).get("enabled")
+            and settings.get("memory", {}).get("auto_store_enabled")
+            and summary.content
+        ):
+            asyncio.create_task(memory_mod.store_summary_async(summary.content, settings))
         _history = [SystemMessage(wrapped)] + list(last_turn)
         return {}
 
-    def summarize_all_node(state: _State) -> dict:
+    async def summarize_all_node(state: _State) -> dict:
         logger.info("session summarize triggered")
         global _history, _current_token_usage
         from langchain_core.messages import RemoveMessage
@@ -242,6 +262,15 @@ def _ensure_initialized():
             )
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
+        settings = load_settings()
+        if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
+            memory_mod.reset_seen_memory_ids()
+        if (
+            settings.get("memory", {}).get("enabled")
+            and settings.get("memory", {}).get("auto_store_enabled")
+            and summary.content
+        ):
+            asyncio.create_task(memory_mod.store_summary_async(summary.content, settings))
         _history = [summary_msg]
         return {"messages": [RemoveMessage(id=m.id) for m in msgs] + [summary_msg]}
 
@@ -271,8 +300,8 @@ def _ensure_initialized():
     builder.add_node("summarize", summarize_node)
     builder.add_node("summarize_all", summarize_all_node)
     builder.add_node("utility", utility_node)
-    if _tools:
-        builder.add_node("tools", ToolNode(_tools))
+    if resolved_tools:
+        builder.add_node("tools", ToolNode(resolved_tools))
         builder.add_edge("tools", "llm")
 
     builder.add_conditional_edges(START, route_by_reason, {
@@ -282,7 +311,7 @@ def _ensure_initialized():
         "session_timeout": "summarize_all",
     })
     builder.add_conditional_edges("llm", route_after_llm, {
-        "tools": "tools" if _tools else END,
+        "tools": "tools" if resolved_tools else END,
         "summarize": "summarize",
         "finalize": "finalize",
     })
@@ -314,7 +343,21 @@ async def _invoke(
         elif reason == "scheduled_task":
             initial = _history + [SystemMessage(message)]
         else:
-            initial = _history + [HumanMessage(message)]
+            settings = load_settings()
+            current_message = HumanMessage(message)
+            initial = _history + [current_message]
+            if (
+                settings.get("memory", {}).get("enabled")
+                and settings.get("memory", {}).get("auto_recall_enabled")
+                and not isinstance(message, list)
+            ):
+                try:
+                    recall_message = memory_mod.build_auto_recall_system_message(initial, settings)
+                except Exception:
+                    logger.warning("mem0 auto recall failed", exc_info=True)
+                    recall_message = None
+                if recall_message is not None:
+                    initial = _history + [recall_message, current_message]
 
         def _emit(text: str):
             cleaned = re.sub(r'<[^>]+>', '', text).strip()

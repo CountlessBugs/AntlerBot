@@ -1,3 +1,7 @@
+import asyncio
+import logging
+from unittest.mock import patch
+
 from langchain_core.messages import AIMessage, HumanMessage
 from src.agent import memory
 
@@ -44,3 +48,23 @@ def test_filter_search_results_applies_threshold_max_count_and_seen_ids():
 
 def test_format_auto_recall_message_returns_none_for_empty_results():
     assert memory.format_auto_recall_message([], "前缀") is None
+
+
+def test_recall_result_format_uses_plain_effort_label():
+    text = memory.format_recall_result(
+        [{"memory": "用户喜欢篮球"}, {"memory": "用户养了一只猫"}],
+        effort_label="中等",
+    )
+    assert "已按中等努力程度检索到以下长期记忆：" in text
+    assert '"中等"' not in text
+
+
+def test_recall_result_format_handles_empty_results():
+    assert memory.format_recall_result([], effort_label="高") == "未检索到符合条件的长期记忆。"
+
+
+def test_store_summary_async_logs_failure(caplog):
+    with patch("src.agent.memory.get_memory_client", side_effect=RuntimeError("boom")), \
+         caplog.at_level(logging.WARNING):
+        asyncio.run(memory.store_summary_async("总结", {"memory": {"agent_id": "antlerbot"}}))
+    assert any("mem0" in r.message.lower() for r in caplog.records)

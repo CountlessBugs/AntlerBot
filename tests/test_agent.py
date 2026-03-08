@@ -34,6 +34,22 @@ def reset_agent_state():
     agent_mod._current_token_usage = 0
 
 
+def test_ensure_initialized_binds_recall_tool_when_memory_enabled(monkeypatch):
+    mock_llm = MagicMock()
+    mock_llm.bind_tools.return_value = mock_llm
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    with patch("src.agent.agent.load_prompt", return_value=None), \
+         patch("src.agent.agent.init_chat_model", return_value=mock_llm), \
+         patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True}}):
+        agent_mod.register_tools([])
+        agent_mod._ensure_initialized()
+    bound_tools = mock_llm.bind_tools.call_args[0][0]
+    recall_tool = next((tool for tool in bound_tools if tool.name == "recall_memory"), None)
+    assert recall_tool is not None
+    assert "长期记忆" in recall_tool.description
+
+
 def test_load_prompt_missing_creates_default(tmp_path, caplog):
     path = str(tmp_path / "prompt.txt")
     from src.agent.agent import load_prompt, PROMPT_EXAMPLE_PATH
@@ -89,6 +105,50 @@ def _make_stream_event(content, node="llm"):
 async def _aiter(events):
     for e in events:
         yield e
+
+
+@pytest.mark.anyio
+async def test_invoke_injects_auto_recall_system_message_before_human_message():
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("ok")])
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph), \
+         patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True}}), \
+         patch("src.agent.agent.memory_mod.build_auto_recall_system_message", return_value=SystemMessage("长期记忆")):
+        async for _ in agent_mod._invoke("user_message", "你好"):
+            pass
+    sent = mock_graph.astream_events.call_args[0][0]["messages"]
+    assert isinstance(sent[-2], SystemMessage)
+    assert sent[-2].content == "长期记忆"
+    assert isinstance(sent[-1], HumanMessage)
+
+
+@pytest.mark.anyio
+async def test_invoke_skips_auto_recall_message_when_none():
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("ok")])
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph), \
+         patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True}}), \
+         patch("src.agent.agent.memory_mod.build_auto_recall_system_message", return_value=None):
+        async for _ in agent_mod._invoke("user_message", "你好"):
+            pass
+    sent = mock_graph.astream_events.call_args[0][0]["messages"]
+    assert isinstance(sent[-1], HumanMessage)
+    assert not any(isinstance(msg, SystemMessage) and msg.content == "长期记忆" for msg in sent[:-1])
+
+
+@pytest.mark.anyio
+async def test_auto_recall_failure_does_not_break_invoke(caplog):
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("ok")])
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph), \
+         patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True}}), \
+         patch("src.agent.agent.memory_mod.build_auto_recall_system_message", side_effect=RuntimeError("boom")), \
+         caplog.at_level(logging.WARNING):
+        result = "".join([s async for s in agent_mod._invoke("user_message", "你好")])
+    assert result == "ok"
 
 
 @pytest.mark.anyio
@@ -300,6 +360,34 @@ async def test_complex_reschedule_does_not_update_token_usage():
         async for _ in agent_mod._invoke("complex_reschedule", messages=[SystemMessage("sys"), HumanMessage("ctx")]):
             pass
     assert agent_mod._current_token_usage == 0
+
+
+@pytest.mark.anyio
+async def test_summarize_all_schedules_async_memory_store_and_resets_seen_ids():
+    summary_ai = AIMessage("总结文本")
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = summary_ai
+    mock_llm.bind_tools.return_value = mock_llm
+    agent_mod._history = [HumanMessage("旧消息")]
+
+    async def fake_store_summary_async(summary_text, settings):
+        return None
+
+    with patch("src.agent.agent.init_chat_model", return_value=mock_llm), \
+         patch.dict("os.environ", {"LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o"}), \
+         patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True, "auto_store_enabled": True}}) as load_settings_mock, \
+         patch("src.agent.agent.memory_mod.reset_seen_memory_ids") as reset_mock, \
+         patch("src.agent.agent.memory_mod.store_summary_async", side_effect=fake_store_summary_async) as store_mock, \
+         patch("src.agent.agent.asyncio.create_task", wraps=asyncio.create_task) as create_task_mock:
+        agent_mod._ensure_initialized()
+        graph = agent_mod._graph
+        state = {"messages": [HumanMessage("旧消息")], "reason": "session_timeout"}
+        await graph.ainvoke(state, config={"configurable": {"thread_id": "test-memory-store"}})
+
+    settings = load_settings_mock.return_value
+    reset_mock.assert_called_once()
+    store_mock.assert_called_once_with("总结文本", settings)
+    assert create_task_mock.call_count >= 1
 
 
 @pytest.mark.anyio

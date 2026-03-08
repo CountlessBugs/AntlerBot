@@ -3,6 +3,7 @@ import re
 
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately
+from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,72 @@ def format_auto_recall_message(results, prefix: str) -> SystemMessage | None:
     if len(lines) == 1:
         return None
     return SystemMessage("\n".join(lines))
+
+
+def get_effort_config(settings: dict, effort: str) -> tuple[float, int, str]:
+    memory_settings = settings.get("memory", {})
+    effort_map = {
+        "low": (memory_settings.get("recall_low_score_threshold", 0.85), memory_settings.get("recall_low_max_memories", 3), "低"),
+        "medium": (memory_settings.get("recall_medium_score_threshold", 0.70), memory_settings.get("recall_medium_max_memories", 6), "中等"),
+        "high": (memory_settings.get("recall_high_score_threshold", 0.55), memory_settings.get("recall_high_max_memories", 10), "高"),
+    }
+    return effort_map.get(effort, effort_map["medium"])
+
+
+def format_recall_result(results, effort_label: str) -> str:
+    if not results:
+        return "未检索到符合条件的长期记忆。"
+
+    lines = [f"已按{effort_label}努力程度检索到以下长期记忆："]
+    for item in results:
+        memory_text = str(item.get("memory", "")).strip()
+        if memory_text:
+            lines.append(f"- {memory_text}")
+    return "\n".join(lines)
+
+
+def build_recall_tool(settings: dict):
+    @tool("recall_memory", parse_docstring=False)
+    def recall_memory(query: str, effort: str = "medium") -> str:
+        """按指定努力程度检索与当前问题相关的长期记忆。"""
+        client = get_memory_client(settings)
+        threshold, max_memories, effort_label = get_effort_config(settings, effort)
+        raw_results = client.search(query, agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"))
+        results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
+        filtered = filter_search_results(results, threshold=threshold, max_memories=max_memories, seen_ids=set())
+        return format_recall_result(filtered, effort_label)
+
+    return recall_memory
+
+
+def build_auto_recall_system_message(history: list[BaseMessage], settings: dict) -> SystemMessage | None:
+    memory_settings = settings.get("memory", {})
+    query = build_auto_recall_query(history, memory_settings.get("auto_recall_query_token_limit", 400))
+    if not query:
+        return None
+
+    client = get_memory_client(settings)
+    raw_results = client.search(query, agent_id=memory_settings.get("agent_id", "antlerbot"))
+    results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
+    filtered = filter_search_results(
+        results,
+        threshold=memory_settings.get("auto_recall_score_threshold", 0.75),
+        max_memories=memory_settings.get("auto_recall_max_memories", 5),
+        seen_ids=get_seen_memory_ids(),
+    )
+    mark_seen_memory_ids(filtered)
+    return format_auto_recall_message(filtered, memory_settings.get("auto_recall_system_prefix", "以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。"))
+
+
+async def store_summary_async(summary_text: str, settings: dict) -> None:
+    try:
+        client = get_memory_client(settings)
+        client.add(
+            [{"role": "user", "content": summary_text}],
+            agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"),
+        )
+    except Exception:
+        logger.warning("mem0 summary store failed", exc_info=True)
 
 
 def mark_seen_memory_ids(results) -> None:
