@@ -12,6 +12,8 @@ Core framework docs are in `docs/frameworks/`. Read relevant files before implem
 
 NcatBot is the core framework for interacting with QQ. Docs: `docs/frameworks/NcatBot.md`.
 
+Mem0 Python-related docs are mirrored locally under `docs/frameworks/mem0/`. Use `docs/frameworks/mem0/INDEX.md` for the generated file map, source sitemap, and selected page list. Rebuild the mirror with `python tools/sync_mem0_docs.py`.
+
 # Plans and Archives
 
 - `docs/plans/` contains detailed design docs for planned features and architecture changes.
@@ -44,6 +46,14 @@ config/
   ncatbot.yaml                 # NcatBot runtime configuration
   permissions.yaml             # 3-tier permissions: developer/admin QQ UID lists (auto-created if missing)
   tasks.json                   # persisted scheduled task definitions
+docs/
+  frameworks/
+    NcatBot.md
+    mem0/
+      INDEX.md                 # local mem0 doc mirror index and source mapping
+      *.md                     # selected mem0 Python-related mirrored docs
+tools/
+  sync_mem0_docs.py            # rebuilds the local mem0 Markdown mirror from the mem0 sitemap
 tests/
   test_agent.py
   test_message_handler.py
@@ -54,6 +64,7 @@ tests/
   test_scheduled_tasks.py
   test_commands.py
   test_contact_cache.py
+  test_sync_mem0_docs.py       # sync script tests for filtering, extraction, filenames, and index generation
 ```
 
 # Current State
@@ -68,6 +79,7 @@ Core features implemented:
 - `src/runtime/scheduled_tasks.py` manages APScheduler jobs, exposes LangChain tools for task CRUD, handles startup recovery
 - Auto-summarization: `src/agent/agent.py` summarizes history when `input_tokens > context_limit_tokens`; session timeout triggers `summarize_all` then `clear_history()`
 - `src/commands/handlers.py` handles private-chat `/commands`: permission checks against `config/permissions.yaml` (re-read each call), 8 developer commands, 3 admin commands; command messages bypass scheduler and LLM context entirely
+- `tools/sync_mem0_docs.py` mirrors selected `mem0ai` Python-relevant docs into `docs/frameworks/mem0/` as repository-local Markdown, with URL filtering, content extraction, stable filenames, and generated `INDEX.md`
 
 # Adding Configuration Items
 
