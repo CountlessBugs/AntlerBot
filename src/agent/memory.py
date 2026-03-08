@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from datetime import UTC, datetime
 
@@ -79,12 +80,56 @@ def build_auto_recall_query(messages: list[BaseMessage], token_limit: int) -> st
     return " ".join(parts) if parts else None
 
 
+def _get_env(name: str) -> str | None:
+    value = os.environ.get(name)
+    return value if value else None
+
+
+def _require_mem0_field(value: str | None, env_name: str) -> str:
+    if value:
+        return value
+    raise RuntimeError(f"{env_name} is required to initialize Mem0.")
+
+
+def _resolve_mem0_llm_config() -> dict:
+    provider = _require_mem0_field(_get_env("MEM0_LLM_PROVIDER") or _get_env("LLM_PROVIDER"), "LLM_PROVIDER")
+    model = _require_mem0_field(_get_env("MEM0_LLM_MODEL") or _get_env("LLM_MODEL"), "LLM_MODEL")
+    api_key = _get_env("MEM0_LLM_API_KEY") or _get_env("OPENAI_API_KEY")
+    base_url = _get_env("MEM0_LLM_BASE_URL") or _get_env("OPENAI_BASE_URL")
+
+    config = {"model": model}
+    if api_key:
+        config["api_key"] = api_key
+    if base_url:
+        config["base_url"] = base_url
+    return {"provider": provider, "config": config}
+
+
+def _resolve_mem0_embedder_config() -> dict:
+    provider = _require_mem0_field(_get_env("MEM0_EMBEDDER_PROVIDER") or "openai", "MEM0_EMBEDDER_PROVIDER")
+    model = _require_mem0_field(_get_env("MEM0_EMBEDDER_MODEL") or "text-embedding-3-small", "MEM0_EMBEDDER_MODEL")
+    api_key = _get_env("MEM0_EMBEDDER_API_KEY") or _get_env("OPENAI_API_KEY")
+    base_url = _get_env("MEM0_EMBEDDER_BASE_URL") or _get_env("OPENAI_BASE_URL")
+
+    config = {"model": model}
+    if api_key:
+        config["api_key"] = api_key
+    if base_url:
+        config["base_url"] = base_url
+    return {"provider": provider, "config": config}
+
+
 def get_memory_store(settings: dict):
     global _MEMORY_STORE
     if _MEMORY_STORE is None:
         from mem0 import Memory
+        from mem0.configs.base import MemoryConfig
 
-        _MEMORY_STORE = Memory()
+        config = MemoryConfig(
+            llm=_resolve_mem0_llm_config(),
+            embedder=_resolve_mem0_embedder_config(),
+        )
+        _MEMORY_STORE = Memory(config)
     return _MEMORY_STORE
 
 

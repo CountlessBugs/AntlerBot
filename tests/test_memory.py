@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -186,3 +187,178 @@ def test_store_summary_async_logs_failure(caplog):
          caplog.at_level(logging.WARNING):
         asyncio.run(memory.store_summary_async("总结", {"memory": {"agent_id": "antlerbot"}}))
     assert any("mem0" in r.message.lower() for r in caplog.records)
+
+
+def test_get_memory_store_uses_main_llm_when_mem0_llm_env_is_unset(monkeypatch):
+    captured = {}
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            captured["config"] = config
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("MEM0_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("MEM0_LLM_MODEL", raising=False)
+    monkeypatch.delenv("MEM0_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("MEM0_LLM_BASE_URL", raising=False)
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "mem0": SimpleNamespace(Memory=FakeMemory),
+            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+        },
+    ):
+        store = memory.get_memory_store({"memory": {}})
+
+    assert store is not None
+    assert captured["config"]["llm"]["provider"] == "openai"
+    assert captured["config"]["llm"]["config"]["model"] == "gpt-4o"
+    assert captured["config"]["llm"]["config"]["api_key"] == "test-key"
+
+
+def test_get_memory_store_uses_dedicated_mem0_llm_override(monkeypatch):
+    captured = {}
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            captured["config"] = config
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "main-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://main.example/v1")
+    monkeypatch.setenv("MEM0_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("MEM0_LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("MEM0_LLM_API_KEY", "mem0-key")
+    monkeypatch.setenv("MEM0_LLM_BASE_URL", "https://mem0.example/v1")
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "mem0": SimpleNamespace(Memory=FakeMemory),
+            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+        },
+    ):
+        memory.get_memory_store({"memory": {}})
+
+    assert captured["config"]["llm"] == {
+        "provider": "openai",
+        "config": {
+            "model": "gpt-4.1-mini",
+            "api_key": "mem0-key",
+            "base_url": "https://mem0.example/v1",
+        },
+    }
+
+
+def test_get_memory_store_uses_default_embedder_when_mem0_embedder_env_is_unset(monkeypatch):
+    captured = {}
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            captured["config"] = config
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "embed-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://openai.example/v1")
+    monkeypatch.delenv("MEM0_EMBEDDER_PROVIDER", raising=False)
+    monkeypatch.delenv("MEM0_EMBEDDER_MODEL", raising=False)
+    monkeypatch.delenv("MEM0_EMBEDDER_API_KEY", raising=False)
+    monkeypatch.delenv("MEM0_EMBEDDER_BASE_URL", raising=False)
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "mem0": SimpleNamespace(Memory=FakeMemory),
+            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+        },
+    ):
+        memory.get_memory_store({"memory": {}})
+
+    assert captured["config"]["embedder"] == {
+        "provider": "openai",
+        "config": {
+            "model": "text-embedding-3-small",
+            "api_key": "embed-key",
+            "base_url": "https://openai.example/v1",
+        },
+    }
+
+
+def test_get_memory_store_uses_dedicated_mem0_embedder_override(monkeypatch):
+    captured = {}
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            captured["config"] = config
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "main-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://main.example/v1")
+    monkeypatch.setenv("MEM0_EMBEDDER_PROVIDER", "ollama")
+    monkeypatch.setenv("MEM0_EMBEDDER_MODEL", "bge-m3")
+    monkeypatch.setenv("MEM0_EMBEDDER_API_KEY", "embedder-key")
+    monkeypatch.setenv("MEM0_EMBEDDER_BASE_URL", "https://embedder.example/v1")
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "mem0": SimpleNamespace(Memory=FakeMemory),
+            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+        },
+    ):
+        memory.get_memory_store({"memory": {}})
+
+    assert captured["config"]["embedder"] == {
+        "provider": "ollama",
+        "config": {
+            "model": "bge-m3",
+            "api_key": "embedder-key",
+            "base_url": "https://embedder.example/v1",
+        },
+    }
+
+
+def test_get_memory_store_embedder_falls_back_to_openai_connection_env(monkeypatch):
+    captured = {}
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            captured["config"] = config
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "shared-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://shared.example/v1")
+    monkeypatch.setenv("MEM0_EMBEDDER_PROVIDER", "openai")
+    monkeypatch.setenv("MEM0_EMBEDDER_MODEL", "text-embedding-3-large")
+    monkeypatch.delenv("MEM0_EMBEDDER_API_KEY", raising=False)
+    monkeypatch.delenv("MEM0_EMBEDDER_BASE_URL", raising=False)
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "mem0": SimpleNamespace(Memory=FakeMemory),
+            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+        },
+    ):
+        memory.get_memory_store({"memory": {}})
+
+    assert captured["config"]["embedder"] == {
+        "provider": "openai",
+        "config": {
+            "model": "text-embedding-3-large",
+            "api_key": "shared-key",
+            "base_url": "https://shared.example/v1",
+        },
+    }
