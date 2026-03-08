@@ -12,6 +12,8 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing import Annotated, AsyncGenerator, Literal, TypedDict
 
+from src.agent import memory as memory_mod
+
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = os.path.normpath(
@@ -40,12 +42,40 @@ _SETTINGS_DEFAULTS = {
         "video": {"enabled": False, "max_duration": 30, "trim_over_limit": True},
         "document": {"enabled": False},
     },
+    "memory": {
+        "enabled": False,
+        "agent_id": "antlerbot",
+        "auto_recall_enabled": True,
+        "auto_store_enabled": True,
+        "auto_recall_query_token_limit": 400,
+        "auto_recall_score_threshold": 0.75,
+        "auto_recall_max_memories": 5,
+        "auto_recall_system_prefix": "以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。",
+        "recall_low_score_threshold": 0.85,
+        "recall_low_max_memories": 3,
+        "recall_medium_score_threshold": 0.70,
+        "recall_medium_max_memories": 6,
+        "recall_high_score_threshold": 0.55,
+        "recall_high_max_memories": 10,
+        "reset_seen_on_summary": True,
+    },
 }
 
 
 def load_settings() -> dict:
     if not os.path.exists(SETTINGS_PATH):
-        return dict(_SETTINGS_DEFAULTS)
+        return {
+            **_SETTINGS_DEFAULTS,
+            "media": {
+                **_SETTINGS_DEFAULTS["media"],
+                **{
+                    key: dict(value)
+                    for key, value in _SETTINGS_DEFAULTS["media"].items()
+                    if isinstance(value, dict)
+                },
+            },
+            "memory": dict(_SETTINGS_DEFAULTS["memory"]),
+        }
     import yaml
     with open(SETTINGS_PATH, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
@@ -56,6 +86,9 @@ def load_settings() -> dict:
     for key in ("image", "audio", "video", "document"):
         merged_media[key] = {**default_media.get(key, {}), **user_media.get(key, {})}
     merged["media"] = merged_media
+    default_memory = _SETTINGS_DEFAULTS.get("memory", {})
+    user_memory = data.get("memory", {})
+    merged["memory"] = {**default_memory, **user_memory}
     return merged
 
 _llm = None
@@ -106,6 +139,12 @@ _PROVIDER_PACKAGES = {
 }
 
 
+def clear_history():
+    global _history
+    _history = []
+    memory_mod.reset_session_memory_state()
+
+
 def _with_tool_logging(t):
     orig = t.ainvoke
     async def logged(input, config=None, **kwargs):
@@ -115,9 +154,17 @@ def _with_tool_logging(t):
     return t
 
 
+def _resolve_registered_tools() -> list:
+    settings = load_settings()
+    tools = list(_tools)
+    if settings.get("memory", {}).get("enabled"):
+        tools.append(memory_mod.build_recall_tool(settings))
+    return [_with_tool_logging(t) for t in tools]
+
+
 def register_tools(tools: list) -> None:
     global _tools, _graph
-    _tools = [_with_tool_logging(t) for t in tools]
+    _tools = list(tools)
     _graph = None
 
 
@@ -140,7 +187,8 @@ def _ensure_initialized():
             f"Install it with:\n  pip install {pkg}"
         ) from None
 
-    llm_with_tools = _llm.bind_tools(_tools) if _tools else _llm
+    resolved_tools = _resolve_registered_tools()
+    llm_with_tools = _llm.bind_tools(resolved_tools) if resolved_tools else _llm
 
     def llm_node(state: _State) -> dict:
         msgs = state["messages"]
@@ -153,7 +201,7 @@ def _ensure_initialized():
 
     def finalize_node(state: _State) -> dict:
         global _history
-        _history = list(state["messages"])
+        _history = [msg for msg in state["messages"] if not memory_mod.is_temporary_auto_recall_message(msg)]
         return {}
 
     def _safe_for_summary(msgs):
@@ -165,7 +213,7 @@ def _ensure_initialized():
             msgs.pop()
         return msgs
 
-    def summarize_node(state: _State) -> dict:
+    async def summarize_node(state: _State) -> dict:
         global _history, _current_token_usage
         msgs = state["messages"]
         last_human = next((i for i in range(len(msgs) - 1, -1, -1) if isinstance(msgs[i], (HumanMessage, SystemMessage))), None)
@@ -190,10 +238,19 @@ def _ensure_initialized():
             )
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
+        settings = load_settings()
+        if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
+            memory_mod.reset_session_memory_state()
+        if (
+            settings.get("memory", {}).get("enabled")
+            and settings.get("memory", {}).get("auto_store_enabled")
+            and summary.content
+        ):
+            asyncio.create_task(memory_mod.store_summary_async(summary.content, settings))
         _history = [SystemMessage(wrapped)] + list(last_turn)
         return {}
 
-    def summarize_all_node(state: _State) -> dict:
+    async def summarize_all_node(state: _State) -> dict:
         logger.info("session summarize triggered")
         global _history, _current_token_usage
         from langchain_core.messages import RemoveMessage
@@ -211,6 +268,15 @@ def _ensure_initialized():
             )
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
+        settings = load_settings()
+        if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
+            memory_mod.reset_session_memory_state()
+        if (
+            settings.get("memory", {}).get("enabled")
+            and settings.get("memory", {}).get("auto_store_enabled")
+            and summary.content
+        ):
+            asyncio.create_task(memory_mod.store_summary_async(summary.content, settings))
         _history = [summary_msg]
         return {"messages": [RemoveMessage(id=m.id) for m in msgs] + [summary_msg]}
 
@@ -240,8 +306,8 @@ def _ensure_initialized():
     builder.add_node("summarize", summarize_node)
     builder.add_node("summarize_all", summarize_all_node)
     builder.add_node("utility", utility_node)
-    if _tools:
-        builder.add_node("tools", ToolNode(_tools))
+    if resolved_tools:
+        builder.add_node("tools", ToolNode(resolved_tools))
         builder.add_edge("tools", "llm")
 
     builder.add_conditional_edges(START, route_by_reason, {
@@ -251,7 +317,7 @@ def _ensure_initialized():
         "session_timeout": "summarize_all",
     })
     builder.add_conditional_edges("llm", route_after_llm, {
-        "tools": "tools" if _tools else END,
+        "tools": "tools" if resolved_tools else END,
         "summarize": "summarize",
         "finalize": "finalize",
     })
@@ -283,7 +349,22 @@ async def _invoke(
         elif reason == "scheduled_task":
             initial = _history + [SystemMessage(message)]
         else:
-            initial = _history + [HumanMessage(message)]
+            settings = load_settings()
+            current_message = HumanMessage(message)
+            initial = _history + [current_message]
+            if (
+                settings.get("memory", {}).get("enabled")
+                and settings.get("memory", {}).get("auto_recall_enabled")
+                and not isinstance(message, list)
+            ):
+                try:
+                    recall_message = memory_mod.build_auto_recall_system_message(initial, settings)
+                except Exception:
+                    logger.warning("mem0 auto recall failed", exc_info=True)
+                    recall_message = None
+                if recall_message is not None:
+                    recall_message = memory_mod.ensure_temporary_auto_recall_message(recall_message)
+                    initial = _history + [recall_message, current_message]
 
         def _emit(text: str):
             cleaned = re.sub(r'<[^>]+>', '', text).strip()
@@ -329,6 +410,9 @@ async def _invoke(
                     buffer = buffer[end + len("</no-split>"):]
                     in_no_split = False
 
+        if reason == "user_message":
+            _history[:] = [msg for msg in _history if not memory_mod.is_temporary_auto_recall_message(msg)]
+
         if in_no_split:
             seg = _emit(buffer)
             if seg:
@@ -348,8 +432,3 @@ async def _invoke(
 
 def has_history() -> bool:
     return bool(_history)
-
-
-def clear_history() -> None:
-    global _history
-    _history = []

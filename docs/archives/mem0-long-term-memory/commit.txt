@@ -1,0 +1,4 @@
+89339ad664f5412d16b08f2a9a3cfc38a7ed6609 feat: add mem0 memory foundations
+0df9e64cdccb2987085e17222d25b87e80558e85 feat: integrate mem0 recall and summary hooks
+4e29764ae461e2d1719af3703ef47b6113f86535 build: lock mem0 dependency
+f14cc4a7b4d10e575ac8b922d193d898865bfe2c feat: refine mem0 recall session semantics

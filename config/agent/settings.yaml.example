@@ -6,9 +6,45 @@ timeout_clear_seconds: 3600
 # 被引用消息的最大长度，超过该长度被截断
 reply_quote_truncate_length: 50
 
+memory:
+  # 是否启用长期记忆（Mem0）
+  enabled: false
+
+  # Mem0 中用于隔离本机器人记忆空间的 agent_id
+  agent_id: antlerbot
+
+  # 是否在用户发言前自动检索相关长期记忆
+  auto_recall_enabled: true
+
+  # 是否在摘要生成后异步写入长期记忆
+  auto_store_enabled: true
+
+  # 自动检索时用于构造查询窗口的近似 token 上限
+  auto_recall_query_token_limit: 400
+
+  # 自动检索的最低相似度阈值
+  auto_recall_score_threshold: 0.75
+
+  # 自动检索最多注入多少条长期记忆
+  auto_recall_max_memories: 5
+
+  # 自动检索注入到模型前的系统提示前缀
+  auto_recall_system_prefix: 以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。
+
+  # 手动 recall_memory 工具在不同 effort 下的阈值与条数配置
+  recall_low_score_threshold: 0.85
+  recall_low_max_memories: 3
+  recall_medium_score_threshold: 0.70
+  recall_medium_max_memories: 6
+  recall_high_score_threshold: 0.55
+  recall_high_max_memories: 10
+
+  # 每次摘要后是否重置“已见过”的长期记忆 ID 集合
+  reset_seen_on_summary: true
+
 media:
   timeout: 180
-  
+
   # 小于此大小 (MB) 的文件会被同步处理，期间 Agent 无法接收其他消息
   # 大于此大小的文件会分为两阶段异步处理，先发送一个占位符
   # 下载并处理完成后再将文件发送给 Agent，期间不会阻塞其他消息
@@ -30,7 +66,7 @@ media:
   audio:
     enabled: false
     max_duration: 60
-    
+
     # 音频长度超过 max_duration 时是否进行裁剪
     # 为 true 则从开头截取至 max_duration，为 false 则直接替换为占位符
     # 需要安装 ffmpeg，若未安装则等同于 false
