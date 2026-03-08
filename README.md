@@ -1,6 +1,6 @@
 # AntlerBot
 
-一个基于 Python 的 QQ 机器人，通过 NapCat 与 QQ 交互，使用 LangGraph 驱动 LLM 对话回复
+一个基于 Python 的 QQ 机器人，通过 NCatBot 与 QQ 交互，使用 LangGraph 驱动 LLM 对话回复, 使用 Mem0 提供长期记忆能力，支持多模态输入、定时任务和权限管理。
 
 ## 🚀 快速开始
 
@@ -69,21 +69,22 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 
 | 字段 | 说明 |
 |------|------|
+| `temperature` | 模型采样温度 |
 | `context_limit_tokens` | 上下文窗口限制，超过时触发自动摘要 |
 | `timeout_summarize_seconds` | 无消息多少秒后触发会话摘要 |
 | `timeout_clear_seconds` | 会话摘要后多少秒清空历史 |
 | `reply_quote_truncate_length` | 回复消息引用的最大截断长度 |
 | `memory.enabled` | 是否启用 Mem0 长期记忆 |
 | `memory.agent_id` | Mem0 中用于隔离机器人记忆空间的 agent_id |
-| `memory.auto_recall_enabled` | 是否在用户发言前自动检索相关长期记忆 |
+| `memory.auto_recall_enabled` | 是否在用户发言前自动检索相关长期记忆（仅作为当前轮临时上下文注入，不写入持久对话历史） |
 | `memory.auto_store_enabled` | 是否在摘要后异步写入长期记忆 |
 | `memory.auto_recall_query_token_limit` | 自动检索查询窗口的近似 token 上限 |
 | `memory.auto_recall_score_threshold` | 自动检索结果的最低相似度阈值 |
 | `memory.auto_recall_max_memories` | 自动检索最多注入多少条长期记忆 |
 | `memory.auto_recall_system_prefix` | 自动检索注入到模型前的系统提示前缀 |
-| `memory.recall_<等级>_score_threshold` | 手动 recall_memory 工具在对应 effort 下的最低相似度阈值 |
-| `memory.recall_<等级>_max_memories` | 手动 recall_memory 工具在对应 effort 下的最大返回条数 |
-| `memory.reset_seen_on_summary` | 摘要后是否重置已注入过的长期记忆 ID |
+| `memory.recall_<等级>_score_threshold` | `recall_memory` 工具在对应 effort 下的最低相似度阈值 |
+| `memory.recall_<等级>_max_memories` | `recall_memory` 工具在对应 effort 下的最大返回条数 |
+| `memory.reset_seen_on_summary` | 摘要或清空上下文后，是否重置本会话内的记忆计数与上下文锁定状态 |
 | `media.timeout` | 媒体处理超时时间（秒） |
 | `media.max_file_size_mb` | 超过此大小的文件直接跳过 |
 | `media.transcribe_threshold_mb` | 直传/转录分界阈值（设为 0 始终转录，不设始终直传） |
@@ -164,6 +165,27 @@ LLM 可通过工具调用创建和取消定时任务，任务持久化存储于 
 | `once` | 指定时间执行一次 |
 | `repeat` | 按 cron 表达式重复执行 |
 | `complex_repeat` | 每次执行后由 LLM 决定下次触发时间或取消 |
+
+## 🧠 长期记忆系统
+
+项目使用 Mem0 提供长期记忆能力。
+
+系统目前支持三种长期记忆相关行为：
+
+- **自动检索**：在用户发言前，根据最近一段对话构造查询，自动检索相关长期记忆。
+- **异步存储**：在会话摘要生成后，自动将摘要异步写入长期记忆。
+- **主动检索工具**：Agent 可通过 `recall_memory` 工具按不同努力程度检索长期记忆。
+
+自动检索到的长期记忆只会作为当前轮的临时系统上下文参与推理，不会写入持久 `_history`；主动调用 `recall_memory` 工具检索到的内容会进入当前对话上下文。
+
+## 🙏 致谢
+
+本项目基于以下优秀的开源项目构建：
+
+- [LangGraph](https://github.com/langchain-ai/langgraph)
+- [NapCat](https://github.com/NapNeko/NapCatQQ)
+- [NCatBot](https://github.com/ncatbot/ncatbot)
+- [Mem0](https://github.com/mem0ai/mem0)
 
 ## 📝 许可证
 
