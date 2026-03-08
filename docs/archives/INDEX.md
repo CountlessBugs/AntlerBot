@@ -12,5 +12,6 @@
 | 2026-02-22 | [sender-name-display](sender-name-display/) | 联系人缓存，改善发送者名称显示（备注、群名片、群备注） |
 | 2026-02-23 | [permissions-and-commands](permissions-and-commands/) | 3级权限系统与私聊指令系统，含精确 token 追踪 |
 | 2026-02-28 | [message-parsing](message-parsing/) | 消息解析：QQ 表情、消息回复、At解析；媒体文件直传与转述 |
-| 2026-03-06 | [module-refactor](module-refactor/) | 将原 `src/core` 拆分为职责明确的新模块包并移除 legacy core 包 |
-| 2026-03-08 | [mem0-doc-mirror](mem0-doc-mirror/) | Build a local Markdown mirror for Python-relevant mem0 docs |
+| 2026-03-06 | [module-refactor](module-refactor/) | 将原 `src/core` 拆分为职责明确的新模块包并移除旧版 core 包 |
+| 2026-03-08 | [mem0-doc-mirror](mem0-doc-mirror/) | 为 mem0 的 Python 相关文档构建本地 Markdown 镜像 |
+| 2026-03-08 | [mem0-long-term-memory](mem0-long-term-memory/) | 增加基于 Mem0 的长期记忆能力，并补充会话级召回语义、元数据统计与归档记录 |
