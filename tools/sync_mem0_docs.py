@@ -7,7 +7,7 @@ from html import unescape
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
 
 
@@ -21,6 +21,7 @@ INCLUDE_PATTERNS = (
     "/integrations/langgraph",
     "/integrations/langchain",
     "/open-source/mcp/",
+    "/platform/mem0-mcp",
     "/mcp/",
 )
 
@@ -36,6 +37,36 @@ EXCLUDE_PATTERNS = (
     "/ts",
 )
 
+NOISE_PATTERNS = (
+    "skip to main content",
+    "search...",
+    "navigation",
+    "ask ai",
+    "copy",
+    "was this page helpful?",
+    "suggest edits raise issue",
+    "responses are generated using ai and may contain mistakes.",
+    "mem0 home page",
+    "on this page",
+)
+
+START_HINT_PATTERNS = (
+    "get started",
+    "in this guide",
+    "build a personalized",
+    "install necessary libraries",
+    "prerequisites",
+    "overview",
+    "from mem0 import",
+    "pip install",
+)
+
+END_NOISE_PATTERNS = (
+    "previous",
+    "next",
+    "assistant",
+)
+
 
 @dataclass(frozen=True)
 class PageResult:
@@ -45,7 +76,8 @@ class PageResult:
 
 
 def fetch_text(url: str) -> str:
-    with urlopen(url) as response:
+    request = Request(url, headers={"User-Agent": "Mozilla/5.0 ClaudeCode/1.0"})
+    with urlopen(request) as response:
         return response.read().decode("utf-8")
 
 
@@ -89,7 +121,34 @@ def extract_main_text(html: str) -> str:
 
     lines = [collapse_whitespace(line) for line in content.splitlines()]
     lines = [line for line in lines if line]
+    lines = [line for line in lines if not is_noise_line(line)]
+    lines = trim_noise_boundaries(lines)
     return "\n\n".join(lines)
+
+
+def is_noise_line(value: str) -> bool:
+    lowered = value.lower()
+    return any(pattern in lowered for pattern in NOISE_PATTERNS)
+
+
+def trim_noise_boundaries(lines: list[str]) -> list[str]:
+    start_index = 0
+    for index, line in enumerate(lines):
+        lowered = line.lower()
+        if any(pattern in lowered for pattern in START_HINT_PATTERNS):
+            start_index = index
+            break
+
+    trimmed = lines[start_index:]
+
+    end_index = len(trimmed)
+    for index, line in enumerate(trimmed):
+        lowered = line.lower()
+        if any(pattern == lowered for pattern in END_NOISE_PATTERNS):
+            end_index = index
+            break
+
+    return trimmed[:end_index]
 
 
 def strip_tags(value: str) -> str:
