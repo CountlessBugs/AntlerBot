@@ -228,12 +228,12 @@ def test_get_memory_store_uses_dedicated_mem0_llm_override(monkeypatch):
             captured["config"] = config
 
     monkeypatch.setattr(memory, "_MEMORY_STORE", None)
-    monkeypatch.setenv("LLM_PROVIDER", "openai")
-    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
     monkeypatch.setenv("OPENAI_API_KEY", "main-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://main.example/v1")
-    monkeypatch.setenv("MEM0_LLM_PROVIDER", "openai")
-    monkeypatch.setenv("MEM0_LLM_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("MEM0_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("MEM0_LLM_MODEL", "deepseek-chat")
     monkeypatch.setenv("MEM0_LLM_API_KEY", "mem0-key")
     monkeypatch.setenv("MEM0_LLM_BASE_URL", "https://mem0.example/v1")
 
@@ -247,11 +247,11 @@ def test_get_memory_store_uses_dedicated_mem0_llm_override(monkeypatch):
         memory.get_memory_store({"memory": {}})
 
     assert captured["config"]["llm"] == {
-        "provider": "openai",
+        "provider": "deepseek",
         "config": {
-            "model": "gpt-4.1-mini",
+            "model": "deepseek-chat",
             "api_key": "mem0-key",
-            "base_url": "https://mem0.example/v1",
+            "deepseek_base_url": "https://mem0.example/v1",
         },
     }
 
@@ -287,7 +287,7 @@ def test_get_memory_store_uses_default_embedder_when_mem0_embedder_env_is_unset(
         "config": {
             "model": "text-embedding-3-small",
             "api_key": "embed-key",
-            "base_url": "https://openai.example/v1",
+            "openai_base_url": "https://openai.example/v1",
         },
     }
 
@@ -323,7 +323,7 @@ def test_get_memory_store_uses_dedicated_mem0_embedder_override(monkeypatch):
         "config": {
             "model": "bge-m3",
             "api_key": "embedder-key",
-            "base_url": "https://embedder.example/v1",
+            "ollama_base_url": "https://embedder.example/v1",
         },
     }
 
@@ -359,6 +359,6 @@ def test_get_memory_store_embedder_falls_back_to_openai_connection_env(monkeypat
         "config": {
             "model": "text-embedding-3-large",
             "api_key": "shared-key",
-            "base_url": "https://shared.example/v1",
+            "openai_base_url": "https://shared.example/v1",
         },
     }

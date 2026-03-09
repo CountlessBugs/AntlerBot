@@ -91,6 +91,28 @@ def _require_mem0_field(value: str | None, env_name: str) -> str:
     raise RuntimeError(f"{env_name} is required to initialize Mem0.")
 
 
+def _set_provider_base_url(config: dict, provider: str, base_url: str | None, *, kind: str) -> None:
+    if not base_url:
+        return
+
+    provider_field_map = {
+        "embedder": {
+            "openai": "openai_base_url",
+            "ollama": "ollama_base_url",
+            "huggingface": "huggingface_base_url",
+            "lmstudio": "lmstudio_base_url",
+        },
+        "llm": {
+            "openai": "openai_base_url",
+            "ollama": "ollama_base_url",
+            "anthropic": "anthropic_base_url",
+            "deepseek": "deepseek_base_url",
+            "lmstudio": "lmstudio_base_url",
+        },
+    }
+    config[provider_field_map.get(kind, {}).get(provider, "base_url")] = base_url
+
+
 def _resolve_mem0_llm_config() -> dict:
     provider = _require_mem0_field(_get_env("MEM0_LLM_PROVIDER") or _get_env("LLM_PROVIDER"), "LLM_PROVIDER")
     model = _require_mem0_field(_get_env("MEM0_LLM_MODEL") or _get_env("LLM_MODEL"), "LLM_MODEL")
@@ -100,8 +122,7 @@ def _resolve_mem0_llm_config() -> dict:
     config = {"model": model}
     if api_key:
         config["api_key"] = api_key
-    if base_url:
-        config["base_url"] = base_url
+    _set_provider_base_url(config, provider, base_url, kind="llm")
     return {"provider": provider, "config": config}
 
 
@@ -114,8 +135,7 @@ def _resolve_mem0_embedder_config() -> dict:
     config = {"model": model}
     if api_key:
         config["api_key"] = api_key
-    if base_url:
-        config["base_url"] = base_url
+    _set_provider_base_url(config, provider, base_url, kind="embedder")
     return {"provider": provider, "config": config}
 
 
