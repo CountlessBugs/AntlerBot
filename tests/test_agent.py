@@ -124,6 +124,24 @@ async def test_invoke_injects_auto_recall_system_message_before_human_message():
 
 
 @pytest.mark.anyio
+async def test_invoke_injects_graph_aware_auto_recall_system_message_before_human_message():
+    mock_graph = MagicMock()
+    mock_graph.astream_events.return_value = _aiter([_make_stream_event("ok")])
+    graph_message = SystemMessage("前缀\n记忆：\n- 用户想让 bot 更像真实的人\n联想关系：\n- bot -[目标]-> 真实的人类式记忆")
+    with patch.object(agent_mod, "_ensure_initialized"), \
+         patch.object(agent_mod, "_graph", mock_graph), \
+         patch("src.agent.agent.load_settings", return_value={**agent_mod._SETTINGS_DEFAULTS, "memory": {**agent_mod._SETTINGS_DEFAULTS["memory"], "enabled": True}}), \
+         patch("src.agent.agent.memory_mod.build_auto_recall_system_message", return_value=graph_message):
+        async for _ in agent_mod._invoke("user_message", "你好"):
+            pass
+    sent = mock_graph.astream_events.call_args[0][0]["messages"]
+    assert isinstance(sent[-2], SystemMessage)
+    assert "记忆：" in sent[-2].content
+    assert "联想关系：" in sent[-2].content
+    assert isinstance(sent[-1], HumanMessage)
+
+
+@pytest.mark.anyio
 async def test_invoke_skips_auto_recall_message_when_none():
     mock_graph = MagicMock()
     mock_graph.astream_events.return_value = _aiter([_make_stream_event("ok")])

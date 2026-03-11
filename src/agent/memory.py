@@ -308,8 +308,8 @@ def ensure_temporary_auto_recall_message(message: SystemMessage | None) -> Syste
     return SystemMessage(message.content, additional_kwargs={**message.additional_kwargs, _TEMP_AUTO_RECALL_MARKER: True})
 
 
-def build_temporary_auto_recall_message(results, prefix: str) -> SystemMessage | None:
-    message = format_auto_recall_message(results, prefix)
+def build_temporary_auto_recall_message(results, prefix: str, relations=None, relation_prefix: str | None = None) -> SystemMessage | None:
+    message = format_auto_recall_message(results, prefix, relations=relations, relation_prefix=relation_prefix)
     return ensure_temporary_auto_recall_message(message)
 
 
@@ -374,6 +374,7 @@ def build_recall_tool(settings: dict):
 
 def build_auto_recall_system_message(history: list[BaseMessage], settings: dict) -> SystemMessage | None:
     memory_settings = settings.get("memory", {})
+    graph_settings = memory_settings.get("graph", {})
     query = build_auto_recall_query(history, memory_settings.get("auto_recall_query_token_limit", 400))
     if not query:
         return None
@@ -390,6 +391,10 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
     if not filtered:
         return None
 
+    relations = []
+    if isinstance(raw_results, dict) and graph_settings.get("enabled") and graph_settings.get("auto_recall_enabled"):
+        relations = _trim_relations(raw_results.get("relations", []), graph_settings.get("context_max_relations", 8))
+
     recalled_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     for item in filtered:
         item_id = item.get("id")
@@ -399,6 +404,7 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
     return build_temporary_auto_recall_message(
         filtered,
         memory_settings.get("auto_recall_system_prefix", "以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。"),
+        relations=relations,
     )
 
 

@@ -148,6 +148,128 @@ def test_auto_recall_allows_repeat_results_but_counts_once_per_session():
     assert update_mock.call_count == 1
 
 
+def test_build_auto_recall_system_message_includes_relations_when_graph_auto_recall_enabled():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"}],
+            }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    history = [HumanMessage("你好")]
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "auto_recall_query_token_limit": 50,
+            "auto_recall_score_threshold": 0.5,
+            "auto_recall_max_memories": 5,
+            "auto_recall_system_prefix": "前缀",
+            "graph": {"enabled": True, "auto_recall_enabled": True, "context_max_relations": 8},
+        }
+    }
+
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        message = memory.build_auto_recall_system_message(history, settings)
+
+    assert message is not None
+    assert "记忆：" in message.content
+    assert "联想关系：" in message.content
+
+
+def test_build_auto_recall_system_message_omits_relations_when_graph_auto_recall_disabled():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"}],
+            }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    history = [HumanMessage("你好")]
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "auto_recall_query_token_limit": 50,
+            "auto_recall_score_threshold": 0.5,
+            "auto_recall_max_memories": 5,
+            "auto_recall_system_prefix": "前缀",
+            "graph": {"enabled": True, "auto_recall_enabled": False, "context_max_relations": 8},
+        }
+    }
+
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        message = memory.build_auto_recall_system_message(history, settings)
+
+    assert message is not None
+    assert "记忆：" in message.content
+    assert "联想关系：" not in message.content
+
+
+def test_build_auto_recall_system_message_keeps_memory_section_when_relations_are_malformed():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标"}],
+            }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    history = [HumanMessage("你好")]
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "auto_recall_query_token_limit": 50,
+            "auto_recall_score_threshold": 0.5,
+            "auto_recall_max_memories": 5,
+            "auto_recall_system_prefix": "前缀",
+            "graph": {"enabled": True, "auto_recall_enabled": True, "context_max_relations": 8},
+        }
+    }
+
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        message = memory.build_auto_recall_system_message(history, settings)
+
+    assert message is not None
+    assert "记忆：" in message.content
+    assert "联想关系：" not in message.content
+
+
+def test_build_auto_recall_system_message_returns_none_when_filtered_memories_are_empty_even_if_relations_exist():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.1}],
+                "relations": [{"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"}],
+            }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    history = [HumanMessage("你好")]
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "auto_recall_query_token_limit": 50,
+            "auto_recall_score_threshold": 0.5,
+            "auto_recall_max_memories": 5,
+            "auto_recall_system_prefix": "前缀",
+            "graph": {"enabled": True, "auto_recall_enabled": True, "context_max_relations": 8},
+        }
+    }
+
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        message = memory.build_auto_recall_system_message(history, settings)
+
+    assert message is None
+
+
 def test_filter_search_results_excludes_context_locked_ids():
     results = [
         {"id": "a", "memory": "A", "score": 0.9},
