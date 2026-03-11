@@ -361,6 +361,33 @@ def test_store_summary_async_logs_failure(caplog):
     assert any("mem0" in r.message.lower() for r in caplog.records)
 
 
+def test_store_summary_async_uses_summary_only_with_graph_enabled():
+    class FakeStore:
+        def __init__(self):
+            self.calls = []
+
+        def add(self, messages, agent_id=None):
+            self.calls.append({"messages": messages, "agent_id": agent_id})
+
+    store = FakeStore()
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "graph": {"enabled": True, "provider": "neo4j", "config": {"url": "bolt://localhost:7687"}},
+        }
+    }
+
+    with patch("src.agent.memory.get_memory_store", return_value=store):
+        asyncio.run(memory.store_summary_async("总结文本", settings))
+
+    assert store.calls == [
+        {
+            "messages": [{"role": "user", "content": "总结文本"}],
+            "agent_id": "antlerbot",
+        }
+    ]
+
+
 def test_manual_recall_includes_relations_when_graph_manual_recall_enabled():
     class FakeStore:
         def search(self, query, **kwargs):
