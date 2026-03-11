@@ -375,6 +375,50 @@ def test_get_memory_store_includes_graph_store_when_enabled(monkeypatch):
     }
 
 
+def test_get_memory_store_falls_back_when_graph_init_fails(monkeypatch, caplog):
+    init_configs = []
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            init_configs.append(config)
+            if config.get("graph_store") is not None:
+                raise RuntimeError("graph init failed")
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "mem0": SimpleNamespace(Memory=FakeMemory),
+            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+        },
+    ), caplog.at_level(logging.WARNING):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert len(init_configs) == 2
+    assert any("graph" in record.message.lower() for record in caplog.records)
+    assert "graph_store" not in init_configs[1]
+
+
 def test_get_memory_store_embedder_falls_back_to_openai_connection_env(monkeypatch):
     captured = {}
 

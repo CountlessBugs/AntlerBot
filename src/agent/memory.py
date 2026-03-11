@@ -161,10 +161,13 @@ def get_memory_store(settings: dict):
         }
         graph_store = _resolve_graph_store_config(settings)
         if graph_store is not None:
-            config_kwargs["graph_store"] = graph_store
-
-        config = MemoryConfig(**config_kwargs)
-        _MEMORY_STORE = Memory(config)
+            try:
+                _MEMORY_STORE = Memory(MemoryConfig(**{**config_kwargs, "graph_store": graph_store}))
+            except Exception:
+                logger.warning("Mem0 graph store initialization failed; falling back to vector-only mode.", exc_info=True)
+                _MEMORY_STORE = Memory(MemoryConfig(**config_kwargs))
+        else:
+            _MEMORY_STORE = Memory(MemoryConfig(**config_kwargs))
     return _MEMORY_STORE
 
 
