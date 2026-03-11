@@ -347,7 +347,9 @@ def build_recall_tool(settings: dict):
         """按指定努力程度检索与当前问题相关的长期记忆。"""
         store = get_memory_store(settings)
         threshold, max_memories, effort_label = get_effort_config(settings, effort)
-        raw_results = store.search(query, agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"))
+        memory_settings = settings.get("memory", {})
+        graph_settings = memory_settings.get("graph", {})
+        raw_results = store.search(query, agent_id=memory_settings.get("agent_id", "antlerbot"))
         results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
         filtered = filter_search_results(
             results,
@@ -355,6 +357,9 @@ def build_recall_tool(settings: dict):
             max_memories=max_memories,
             blocked_ids=get_context_locked_memory_ids(),
         )
+        relations = []
+        if isinstance(raw_results, dict) and graph_settings.get("enabled") and graph_settings.get("manual_recall_enabled"):
+            relations = _trim_relations(raw_results.get("relations", []), graph_settings.get("context_max_relations", 8))
         recalled_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         for item in filtered:
             item_id = item.get("id")
@@ -362,7 +367,7 @@ def build_recall_tool(settings: dict):
                 try_update_memory_recall_metadata(store, str(item_id), recalled_at)
         mark_counted_memory_ids(filtered)
         lock_memory_ids_for_session(filtered)
-        return format_recall_result(filtered, effort_label)
+        return format_recall_result(filtered, effort_label, relations=relations)
 
     return recall_memory
 

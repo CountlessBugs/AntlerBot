@@ -239,6 +239,117 @@ def test_store_summary_async_logs_failure(caplog):
     assert any("mem0" in r.message.lower() for r in caplog.records)
 
 
+def test_manual_recall_includes_relations_when_graph_manual_recall_enabled():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"}],
+            }
+
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "graph": {"enabled": True, "manual_recall_enabled": True, "context_max_relations": 8},
+            "recall_medium_score_threshold": 0.7,
+            "recall_medium_max_memories": 6,
+        }
+    }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        result = memory.build_recall_tool(settings).func("用户目标", "medium")
+
+    assert "记忆：" in result
+    assert "联想关系：" in result
+    assert "- bot -[目标]-> 真实的人类式记忆" in result
+
+
+def test_manual_recall_remains_memory_only_when_graph_is_disabled():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"}],
+            }
+
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "graph": {"enabled": False, "manual_recall_enabled": True, "context_max_relations": 8},
+            "recall_medium_score_threshold": 0.7,
+            "recall_medium_max_memories": 6,
+        }
+    }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        result = memory.build_recall_tool(settings).func("用户目标", "medium")
+
+    assert "记忆：" in result
+    assert "联想关系：" not in result
+
+
+def test_manual_recall_keeps_memory_section_when_relations_are_malformed():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标"}],
+            }
+
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "graph": {"enabled": True, "manual_recall_enabled": True, "context_max_relations": 8},
+            "recall_medium_score_threshold": 0.7,
+            "recall_medium_max_memories": 6,
+        }
+    }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        result = memory.build_recall_tool(settings).func("用户目标", "medium")
+
+    assert "记忆：" in result
+    assert "联想关系：" not in result
+
+
+def test_manual_recall_enforces_context_max_relations():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [
+                    {"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"},
+                    {"source": "长期记忆", "relationship": "支持", "destination": "更自然回复"},
+                ],
+            }
+
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "graph": {"enabled": True, "manual_recall_enabled": True, "context_max_relations": 1},
+            "recall_medium_score_threshold": 0.7,
+            "recall_medium_max_memories": 6,
+        }
+    }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        result = memory.build_recall_tool(settings).func("用户目标", "medium")
+
+    assert result.count("-[") == 1
+
+
 def test_get_memory_store_uses_main_llm_when_mem0_llm_env_is_unset(monkeypatch):
     captured = {}
 
