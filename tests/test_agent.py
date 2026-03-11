@@ -302,6 +302,17 @@ def test_load_settings_reads_file(tmp_path):
     assert result["timeout_summarize_seconds"] == 1800
 
 
+def test_load_settings_includes_graph_memory_defaults(tmp_path):
+    with patch("src.agent.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
+        settings = agent_mod.load_settings()
+
+    assert settings["memory"]["graph"]["enabled"] is False
+    assert settings["memory"]["graph"]["provider"] == "neo4j"
+    assert isinstance(settings["memory"]["graph"]["config"], dict)
+    assert settings["memory"]["graph"]["context_max_relations"] == 8
+    assert settings["memory"]["graph"]["max_hops"] == 1
+
+
 def test_clear_history():
     agent_mod._history = [HumanMessage("x")]
     agent_mod.clear_history()

@@ -58,6 +58,21 @@ _SETTINGS_DEFAULTS = {
         "recall_high_score_threshold": 0.55,
         "recall_high_max_memories": 10,
         "reset_seen_on_summary": True,
+        "graph": {
+            "enabled": False,
+            "provider": "neo4j",
+            "config": {
+                "url": "bolt://localhost:7687",
+                "username": "neo4j",
+                "password": "password",
+                "database": "neo4j",
+            },
+            "auto_recall_enabled": True,
+            "manual_recall_enabled": True,
+            "context_max_relations": 8,
+            "max_hops": 1,
+            "context_prefix": "以下是与当前长期记忆相关的关系联想。仅在相关时使用，不要机械复述。",
+        },
     },
 }
 
