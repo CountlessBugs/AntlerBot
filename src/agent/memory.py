@@ -139,16 +139,31 @@ def _resolve_mem0_embedder_config() -> dict:
     return {"provider": provider, "config": config}
 
 
+def _resolve_graph_store_config(settings: dict) -> dict | None:
+    graph_settings = settings.get("memory", {}).get("graph", {})
+    if not graph_settings.get("enabled"):
+        return None
+    return {
+        "provider": graph_settings.get("provider", "neo4j"),
+        "config": dict(graph_settings.get("config", {})),
+    }
+
+
 def get_memory_store(settings: dict):
     global _MEMORY_STORE
     if _MEMORY_STORE is None:
         from mem0 import Memory
         from mem0.configs.base import MemoryConfig
 
-        config = MemoryConfig(
-            llm=_resolve_mem0_llm_config(),
-            embedder=_resolve_mem0_embedder_config(),
-        )
+        config_kwargs = {
+            "llm": _resolve_mem0_llm_config(),
+            "embedder": _resolve_mem0_embedder_config(),
+        }
+        graph_store = _resolve_graph_store_config(settings)
+        if graph_store is not None:
+            config_kwargs["graph_store"] = graph_store
+
+        config = MemoryConfig(**config_kwargs)
         _MEMORY_STORE = Memory(config)
     return _MEMORY_STORE
 

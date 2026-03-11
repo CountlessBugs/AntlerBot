@@ -328,6 +328,53 @@ def test_get_memory_store_uses_dedicated_mem0_embedder_override(monkeypatch):
     }
 
 
+def test_get_memory_store_includes_graph_store_when_enabled(monkeypatch):
+    captured = {}
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            captured["config"] = config
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    with patch.dict(
+        "sys.modules",
+        {
+            "mem0": SimpleNamespace(Memory=FakeMemory),
+            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+        },
+    ):
+        memory.get_memory_store(settings)
+
+    assert captured["config"]["graph_store"] == {
+        "provider": "neo4j",
+        "config": {
+            "url": "bolt://localhost:7687",
+            "username": "neo4j",
+            "password": "secret",
+            "database": "neo4j",
+        },
+    }
+
+
 def test_get_memory_store_embedder_falls_back_to_openai_connection_env(monkeypatch):
     captured = {}
 
