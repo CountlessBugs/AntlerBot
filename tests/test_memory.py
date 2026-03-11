@@ -64,6 +64,56 @@ def test_recall_result_format_handles_empty_results():
     assert memory.format_recall_result([], effort_label="高") == "未检索到符合条件的长期记忆。"
 
 
+def test_trim_relations_respects_context_max_relations():
+    relations = [
+        {"source": "A", "relationship": "关联", "destination": "B"},
+        {"source": "B", "relationship": "目标", "destination": "C"},
+    ]
+
+    trimmed = memory._trim_relations(relations, 1)
+
+    assert trimmed == [{"source": "A", "relationship": "关联", "destination": "B"}]
+
+
+def test_format_recall_result_omits_relation_section_when_relations_are_empty():
+    text = memory.format_recall_result(
+        [{"memory": "用户正在做 AntlerBot 长期记忆系统"}],
+        effort_label="中等",
+        relations=[],
+    )
+
+    assert "记忆：" in text
+    assert "联想关系：" not in text
+
+
+def test_format_recall_result_includes_memory_and_relation_sections_in_chinese():
+    results = [{"memory": "用户正在做 AntlerBot 长期记忆系统"}]
+    relations = [
+        {"source": "AntlerBot", "relationship": "关联", "destination": "长期记忆系统"},
+        {"source": "长期记忆系统", "relationship": "目标", "destination": "更像真实的人"},
+    ]
+
+    text = memory.format_recall_result(results, effort_label="中等", relations=relations)
+
+    assert "记忆：" in text
+    assert "联想关系：" in text
+    assert "- 用户正在做 AntlerBot 长期记忆系统" in text
+    assert "- AntlerBot -[关联]-> 长期记忆系统" in text
+    assert "- 长期记忆系统 -[目标]-> 更像真实的人" in text
+
+
+def test_format_recall_result_drops_malformed_relations_without_dropping_memory_section():
+    text = memory.format_recall_result(
+        [{"memory": "用户正在做 AntlerBot 长期记忆系统"}],
+        effort_label="中等",
+        relations=[{"source": "AntlerBot", "relationship": "关联"}],
+    )
+
+    assert "记忆：" in text
+    assert "- 用户正在做 AntlerBot 长期记忆系统" in text
+    assert "联想关系：" not in text
+
+
 def test_build_recall_metadata_update_increments_count_and_sets_timestamp():
     current = {"recall_count": 2, "last_recalled_at": "2026-03-01T00:00:00Z", "tag": "x"}
     updated = memory.build_recall_metadata_update(current, recalled_at="2026-03-08T12:00:00Z")

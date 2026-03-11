@@ -186,18 +186,39 @@ def filter_search_results(results, threshold: float, max_memories: int, blocked_
     return filtered
 
 
-def format_auto_recall_message(results, prefix: str) -> SystemMessage | None:
+def format_auto_recall_message(results, prefix: str, relations=None, relation_prefix: str | None = None) -> SystemMessage | None:
     if not results:
         return None
 
-    lines = [prefix]
+    lines = [prefix, "记忆："]
     for item in results:
         memory_text = str(item.get("memory", "")).strip()
         if memory_text:
             lines.append(f"- {memory_text}")
-    if len(lines) == 1:
+
+    relation_lines = _format_relation_lines(relations or [])
+    if relation_lines:
+        lines.append(relation_prefix or "联想关系：")
+        lines.extend(relation_lines)
+
+    if len(lines) == 2:
         return None
     return SystemMessage("\n".join(lines))
+
+
+def _trim_relations(relations, max_relations: int):
+    return list(relations[:max_relations])
+
+
+def _format_relation_lines(relations) -> list[str]:
+    lines = []
+    for relation in relations:
+        source = str(relation.get("source", "")).strip() if isinstance(relation, dict) else ""
+        relationship = str(relation.get("relationship", "")).strip() if isinstance(relation, dict) else ""
+        destination = str(relation.get("destination", "")).strip() if isinstance(relation, dict) else ""
+        if source and relationship and destination:
+            lines.append(f"- {source} -[{relationship}]-> {destination}")
+    return lines
 
 
 def build_recall_metadata_update(current_metadata: dict | None, recalled_at: str) -> dict:
@@ -302,15 +323,21 @@ def get_effort_config(settings: dict, effort: str) -> tuple[float, int, str]:
     return effort_map.get(effort, effort_map["medium"])
 
 
-def format_recall_result(results, effort_label: str) -> str:
+def format_recall_result(results, effort_label: str, relations=None, relation_prefix: str | None = None) -> str:
     if not results:
         return "未检索到符合条件的长期记忆。"
 
-    lines = [f"已按{effort_label}努力程度检索到以下长期记忆："]
+    lines = [f"已按{effort_label}努力程度检索到以下长期记忆：", "记忆："]
     for item in results:
         memory_text = str(item.get("memory", "")).strip()
         if memory_text:
             lines.append(f"- {memory_text}")
+
+    relation_lines = _format_relation_lines(relations or [])
+    if relation_lines:
+        lines.append(relation_prefix or "联想关系：")
+        lines.extend(relation_lines)
+
     return "\n".join(lines)
 
 
