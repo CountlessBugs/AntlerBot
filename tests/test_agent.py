@@ -313,6 +313,29 @@ def test_load_settings_includes_graph_memory_defaults(tmp_path):
     assert settings["memory"]["graph"]["max_hops"] == 1
 
 
+def test_load_settings_deep_merges_memory_graph_defaults(tmp_path):
+    f = tmp_path / "settings.yaml"
+    f.write_text("memory:\n  graph:\n    enabled: true\n", encoding="utf-8")
+
+    with patch("src.agent.agent.SETTINGS_PATH", str(f)):
+        settings = agent_mod.load_settings()
+
+    assert settings["memory"]["graph"]["enabled"] is True
+    assert settings["memory"]["graph"]["provider"] == "neo4j"
+    assert settings["memory"]["graph"]["context_max_relations"] == 8
+
+
+def test_load_settings_preserves_graph_config_defaults_when_partially_overridden(tmp_path):
+    f = tmp_path / "settings.yaml"
+    f.write_text("memory:\n  graph:\n    config:\n      url: bolt://graph.example:7687\n", encoding="utf-8")
+
+    with patch("src.agent.agent.SETTINGS_PATH", str(f)):
+        settings = agent_mod.load_settings()
+
+    assert settings["memory"]["graph"]["config"]["url"] == "bolt://graph.example:7687"
+    assert settings["memory"]["graph"]["config"]["username"] == "neo4j"
+
+
 def test_clear_history():
     agent_mod._history = [HumanMessage("x")]
     agent_mod.clear_history()

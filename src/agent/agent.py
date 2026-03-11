@@ -103,7 +103,21 @@ def load_settings() -> dict:
     merged["media"] = merged_media
     default_memory = _SETTINGS_DEFAULTS.get("memory", {})
     user_memory = data.get("memory", {})
-    merged["memory"] = {**default_memory, **user_memory}
+    default_graph = default_memory.get("graph", {})
+    user_graph = user_memory.get("graph", {})
+    merged_graph = {
+        **default_graph,
+        **user_graph,
+        "config": {
+            **default_graph.get("config", {}),
+            **user_graph.get("config", {}),
+        },
+    }
+    merged["memory"] = {
+        **default_memory,
+        **user_memory,
+        "graph": merged_graph,
+    }
     return merged
 
 _llm = None
