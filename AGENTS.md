@@ -83,6 +83,8 @@ When adding new configuration items to `settings.yaml`, update all three locatio
 3. `README.md` - add documentation in the settings table (around line 60)
 4. `src/agent/agent.py` - add default value to `_SETTINGS_DEFAULTS` dict
 
+When writing YAML example values for settings that are semantically strings but may be mis-typed by YAML parsers (for example IDs, usernames, passwords, database names, tokens, or values with leading zeros), quote them explicitly. Leave URLs unquoted unless quoting is required for correctness.
+
 # Dependency Management
 
 Uses pip-tools. Direct deps in `requirements.in`, locked deps in `requirements.txt`.

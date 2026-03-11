@@ -7,3 +7,5 @@ apscheduler
 lunardate
 pyyaml
 mem0ai
+langchain-neo4j
+rank-bm25

@@ -292,6 +292,29 @@ def test_load_settings_includes_memory_defaults_when_missing(tmp_path):
     assert result["memory"]["auto_recall_query_token_limit"] == 400
 
 
+def test_load_settings_includes_vector_store_defaults(tmp_path):
+    with patch("src.agent.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
+        result = agent_mod.load_settings()
+    assert result["memory"]["vector_store"]["provider"] == "qdrant"
+    assert result["memory"]["vector_store"]["config"]["collection_name"] == "mem0"
+    assert result["memory"]["vector_store"]["config"]["path"] == "data/mem0/qdrant"
+    assert result["memory"]["vector_store"]["config"]["on_disk"] is True
+
+
+def test_load_settings_deep_merges_memory_vector_store_defaults(tmp_path):
+    f = tmp_path / "settings.yaml"
+    f.write_text(
+        'memory:\n  vector_store:\n    config:\n      collection_name: "custom_mem0"\n',
+        encoding="utf-8",
+    )
+    with patch("src.agent.agent.SETTINGS_PATH", str(f)):
+        result = agent_mod.load_settings()
+    assert result["memory"]["vector_store"]["provider"] == "qdrant"
+    assert result["memory"]["vector_store"]["config"]["collection_name"] == "custom_mem0"
+    assert result["memory"]["vector_store"]["config"]["path"] == "data/mem0/qdrant"
+    assert result["memory"]["vector_store"]["config"]["on_disk"] is True
+
+
 def test_load_settings_merges_memory_nested_config(tmp_path):
     f = tmp_path / "settings.yaml"
     f.write_text(

@@ -1,5 +1,8 @@
 import asyncio
 import logging
+import os
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -315,6 +318,188 @@ def test_filter_search_results_excludes_context_locked_ids():
     assert [item["id"] for item in filtered] == ["b"]
 
 
+def test_resolve_vector_store_config_resolves_default_qdrant_path_to_stable_absolute_path():
+    settings = {"memory": {"vector_store": {"provider": "qdrant", "config": {}}}}
+
+    config = memory._resolve_vector_store_config(settings)
+
+    assert config["provider"] == "qdrant"
+    assert config["config"]["collection_name"] == "mem0"
+    assert config["config"]["on_disk"] is True
+    assert Path(config["config"]["path"]).is_absolute()
+    assert Path(config["config"]["path"]).as_posix().endswith("data/mem0/qdrant")
+
+
+def test_resolve_vector_store_config_preserves_absolute_qdrant_path():
+    absolute_path = str(Path("D:/custom/qdrant") if os.name == "nt" else Path("/custom/qdrant"))
+    settings = {
+        "memory": {
+            "vector_store": {
+                "provider": "qdrant",
+                "config": {"path": absolute_path, "collection_name": "custom", "on_disk": False},
+            }
+        }
+    }
+
+    config = memory._resolve_vector_store_config(settings)
+
+    assert config["config"]["path"] == absolute_path
+    assert config["config"]["collection_name"] == "custom"
+    assert config["config"]["on_disk"] is False
+
+
+def test_get_memory_store_includes_vector_store_when_graph_disabled(monkeypatch):
+    memory._MEMORY_STORE = None
+    captured = {}
+
+    class FakeMemoryConfig:
+        def __init__(self, **kwargs):
+            captured["config_kwargs"] = kwargs
+            self.kwargs = kwargs
+
+    class FakeMemory:
+        def __init__(self, config):
+            self.config = config
+            self.vector_store = None
+
+    settings = {
+        "memory": {
+            "graph": {"enabled": False},
+            "vector_store": {
+                "provider": "qdrant",
+                "config": {"collection_name": "mem0", "path": "data/mem0/qdrant", "on_disk": True},
+            },
+        }
+    }
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+
+    with patch("mem0.Memory", FakeMemory), \
+         patch("mem0.configs.base.MemoryConfig", FakeMemoryConfig):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert captured["config_kwargs"]["vector_store"]["provider"] == "qdrant"
+    assert Path(captured["config_kwargs"]["vector_store"]["config"]["path"]).is_absolute()
+    assert Path(captured["config_kwargs"]["vector_store"]["config"]["path"]).as_posix().endswith("data/mem0/qdrant")
+
+
+def test_get_memory_store_includes_graph_store_and_vector_store_when_graph_enabled(monkeypatch):
+    memory._MEMORY_STORE = None
+    captured = {}
+
+    class FakeMemoryConfig:
+        def __init__(self, **kwargs):
+            captured["config_kwargs"] = kwargs
+            self.kwargs = kwargs
+
+    class FakeMemory:
+        def __init__(self, config):
+            self.config = config
+            self.vector_store = None
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            },
+            "vector_store": {
+                "provider": "qdrant",
+                "config": {"collection_name": "mem0", "path": "data/mem0/qdrant", "on_disk": True},
+            },
+        }
+    }
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+
+    monkeypatch.setattr(memory, "_verify_graph_connectivity", lambda provider, config: None)
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()), \
+         patch.dict(
+             sys.modules,
+             {
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=FakeMemoryConfig),
+             },
+         ):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert "graph_store" in captured["config_kwargs"]
+    assert "vector_store" in captured["config_kwargs"]
+    assert captured["config_kwargs"]["graph_store"]["provider"] == "neo4j"
+    assert captured["config_kwargs"]["vector_store"]["provider"] == "qdrant"
+
+
+def test_get_memory_store_falls_back_to_same_vector_store_when_graph_init_fails(monkeypatch, caplog):
+    memory._MEMORY_STORE = None
+    attempts = []
+
+    class FakeMemoryConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeMemory:
+        def __init__(self, config):
+            attempts.append(config.kwargs)
+            if "graph_store" in config.kwargs:
+                raise RuntimeError("graph init failed")
+            self.config = config
+            self.vector_store = None
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            },
+            "vector_store": {
+                "provider": "qdrant",
+                "config": {"collection_name": "mem0", "path": "data/mem0/qdrant", "on_disk": True},
+            },
+        }
+    }
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+
+    monkeypatch.setattr(memory, "_verify_graph_connectivity", lambda provider, config: None)
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()), \
+         patch.dict(
+             sys.modules,
+             {
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=FakeMemoryConfig),
+             },
+         ), \
+         caplog.at_level(logging.WARNING):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert len(attempts) == 2
+    assert "graph_store" in attempts[0]
+    assert "vector_store" in attempts[0]
+    assert "graph_store" not in attempts[1]
+    assert attempts[1]["vector_store"] == attempts[0]["vector_store"]
+    assert "/tmp/qdrant" not in str(attempts[1]["vector_store"])
+
+
 def test_lock_memory_ids_for_session_blocks_future_auto_recall_results():
     class RepeatMemory:
         def search(self, query, **kwargs):
@@ -375,11 +560,158 @@ def test_try_update_memory_recall_metadata_updates_metadata_with_memory_store():
     assert store.updated["data"]["metadata"]["tag"] == "x"
 
 
+class OSSUpdateOnlyMemoryStore:
+    def __init__(self):
+        self.updated = None
+
+    def get(self, memory_id=None, **kwargs):
+        return {
+            "id": memory_id or "mem-1",
+            "memory": "记忆文本",
+            "agent_id": "antlerbot",
+            "metadata": {"recall_count": 1, "tag": "x"},
+        }
+
+    def update(self, memory_id, text=None, metadata=None):
+        if not isinstance(text, str):
+            raise TypeError("OSS mem0 update expects text string")
+        self.updated = {
+            "memory_id": memory_id,
+            "text": text,
+            "metadata": metadata,
+        }
+        return {"message": "ok"}
+
+
+class OSSDummyMemoryStore:
+    def __init__(self):
+        self.updated = None
+
+    def get(self, memory_id=None, **kwargs):
+        return {
+            "id": memory_id or "mem-1",
+            "memory": "记忆文本",
+            "agent_id": "antlerbot",
+            "metadata": {"recall_count": 1, "tag": "x"},
+        }
+
+    def update(self, memory_id, data):
+        if not isinstance(data, str):
+            raise TypeError("OSS mem0 update expects string data")
+        self.updated = {"memory_id": memory_id, "data": data}
+        return {"message": "ok"}
+
+    def _update_memory(self, memory_id, data, existing_embeddings, metadata=None):
+        self.updated = {
+            "memory_id": memory_id,
+            "data": data,
+            "existing_embeddings": existing_embeddings,
+            "metadata": metadata,
+        }
+        return memory_id
+
+
+
+def test_try_update_memory_recall_metadata_supports_oss_mem0_update_contract():
+    store = OSSDummyMemoryStore()
+
+    assert memory.try_update_memory_recall_metadata(store, "mem-1", "2026-03-08T12:00:00Z") is True
+    assert store.updated["memory_id"] == "mem-1"
+    assert store.updated["data"] == "记忆文本"
+    assert store.updated["existing_embeddings"] == {}
+    assert store.updated["metadata"]["recall_count"] == 2
+    assert store.updated["metadata"]["last_recalled_at"] == "2026-03-08T12:00:00Z"
+    assert store.updated["metadata"]["tag"] == "x"
+
+
+
+def test_try_update_memory_recall_metadata_supports_oss_public_update_contract_when_internal_method_is_absent():
+    store = OSSUpdateOnlyMemoryStore()
+
+    assert memory.try_update_memory_recall_metadata(store, "mem-1", "2026-03-08T12:00:00Z") is True
+    assert store.updated["memory_id"] == "mem-1"
+    assert store.updated["text"] == "记忆文本"
+    assert store.updated["metadata"]["recall_count"] == 2
+    assert store.updated["metadata"]["last_recalled_at"] == "2026-03-08T12:00:00Z"
+    assert store.updated["metadata"]["tag"] == "x"
+
+
 
 def test_try_update_memory_recall_metadata_returns_false_when_get_result_is_not_mapping():
     store = DummyMemoryStore(["not-a-dict"])
     assert memory.try_update_memory_recall_metadata(store, "mem-1", "2026-03-08T12:00:00Z") is False
     assert store.updated is None
+
+
+class DummyQdrantClient:
+    def __init__(self):
+        self.payload_calls = []
+
+    def set_payload(self, collection_name, payload, points):
+        self.payload_calls.append(
+            {"collection_name": collection_name, "payload": payload, "points": points}
+        )
+
+
+class DummyQdrantVectorStore:
+    def __init__(self):
+        self.client = DummyQdrantClient()
+        self.collection_name = "memories"
+        self.update_calls = []
+
+    def update(self, vector_id, vector=None, payload=None):
+        if vector is None:
+            raise TypeError("PointStruct requires a non-null vector")
+        self.update_calls.append({"vector_id": vector_id, "vector": vector, "payload": payload})
+
+
+
+def test_patch_vector_store_update_handles_payload_only_updates_for_qdrant():
+    vector_store = DummyQdrantVectorStore()
+
+    memory._patch_vector_store_update_for_payload_only(vector_store)
+    vector_store.update("mem-1", vector=None, payload={"agent_id": "antlerbot"})
+
+    assert vector_store.client.payload_calls == [
+        {
+            "collection_name": "memories",
+            "payload": {"agent_id": "antlerbot"},
+            "points": ["mem-1"],
+        }
+    ]
+
+
+
+def test_get_memory_store_patches_qdrant_payload_only_updates(monkeypatch):
+    class FakeVectorStore(DummyQdrantVectorStore):
+        pass
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            self.vector_store = FakeVectorStore()
+
+    class FakeMemoryConfig(dict):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setitem(__import__("sys").modules, "mem0", SimpleNamespace(Memory=FakeMemory))
+    monkeypatch.setitem(__import__("sys").modules, "mem0.configs.base", SimpleNamespace(MemoryConfig=FakeMemoryConfig))
+
+    store = memory.get_memory_store({"memory": {"graph": {"enabled": False}}})
+    store.vector_store.update("mem-1", vector=None, payload={"agent_id": "antlerbot"})
+
+    assert store.vector_store.client.payload_calls == [
+        {
+            "collection_name": "memories",
+            "payload": {"agent_id": "antlerbot"},
+            "points": ["mem-1"],
+        }
+    ]
+
 
 
 def test_reset_session_memory_state_clears_counted_and_locked_ids():
@@ -589,6 +921,37 @@ def test_get_memory_store_rejects_graph_max_hops_other_than_one(monkeypatch):
         raise AssertionError("expected RuntimeError for unsupported max_hops")
 
 
+
+def test_resolve_graph_store_config_normalizes_numeric_graph_credentials_to_strings():
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "Antler",
+                    "password": 347,
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    graph_store = memory._resolve_graph_store_config(settings)
+
+    assert graph_store == {
+        "provider": "neo4j",
+        "config": {
+            "url": "bolt://localhost:7687",
+            "username": "Antler",
+            "password": "347",
+            "database": "neo4j",
+        },
+    }
+
+
+
 def test_get_memory_store_uses_main_llm_when_mem0_llm_env_is_unset(monkeypatch):
     captured = {}
 
@@ -755,13 +1118,16 @@ def test_get_memory_store_includes_graph_store_when_enabled(monkeypatch):
         }
     }
 
-    with patch.dict(
-        "sys.modules",
-        {
-            "mem0": SimpleNamespace(Memory=FakeMemory),
-            "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
-        },
-    ):
+    monkeypatch.setattr(memory, "_verify_graph_connectivity", lambda provider, config: None)
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()), \
+         patch.dict(
+             sys.modules,
+             {
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+             },
+         ):
         memory.get_memory_store(settings)
 
     assert captured["config"]["graph_store"] == {
@@ -804,6 +1170,100 @@ def test_get_memory_store_falls_back_when_graph_init_fails(monkeypatch, caplog):
         }
     }
 
+    monkeypatch.setattr(memory, "_verify_graph_connectivity", lambda provider, config: None)
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()), \
+         patch.dict(
+             sys.modules,
+             {
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+             },
+         ), caplog.at_level(logging.WARNING):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert len(init_configs) == 2
+    assert any("graph" in record.message.lower() for record in caplog.records)
+    assert "graph_store" not in init_configs[1]
+
+
+
+def test_get_memory_store_uses_persistent_vector_store_path_when_graph_dependency_is_missing(monkeypatch, caplog):
+    init_configs = []
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            init_configs.append(config)
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    settings = {
+        "memory": {
+            "agent_id": "test-agent",
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    def fake_import_module(name, package=None):
+        if name == "mem0.memory.graph_memory":
+            raise ModuleNotFoundError("No module named 'langchain_neo4j'")
+        return __import__(name, fromlist=["*"])
+
+    with patch("importlib.import_module", side_effect=fake_import_module), \
+         patch.dict(
+             sys.modules,
+             {
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+             },
+         ), \
+         caplog.at_level(logging.WARNING):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert len(init_configs) == 1
+    assert init_configs[0]["vector_store"]["provider"] == "qdrant"
+    assert init_configs[0]["vector_store"]["config"]["path"] != "/tmp/qdrant"
+    assert Path(init_configs[0]["vector_store"]["config"]["path"]).is_absolute()
+    assert Path(init_configs[0]["vector_store"]["config"]["path"]).as_posix().endswith("data/mem0/qdrant")
+
+
+
+def test_get_memory_store_falls_back_when_graph_config_is_invalid_before_mem0_init(monkeypatch, caplog):
+    init_configs = []
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            init_configs.append(config)
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {"db": ":memory:"},
+            }
+        }
+    }
+
     with patch.dict(
         "sys.modules",
         {
@@ -814,9 +1274,166 @@ def test_get_memory_store_falls_back_when_graph_init_fails(monkeypatch, caplog):
         store = memory.get_memory_store(settings)
 
     assert store is not None
-    assert len(init_configs) == 2
+    assert len(init_configs) == 1
+    assert "graph_store" not in init_configs[0]
     assert any("graph" in record.message.lower() for record in caplog.records)
-    assert "graph_store" not in init_configs[1]
+
+
+
+def test_get_memory_store_skips_graph_init_when_graph_dependency_is_missing(monkeypatch, caplog):
+    init_configs = []
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            init_configs.append(config)
+            self.vector_store = None
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    def fake_import_module(name, package=None):
+        if name == "mem0.memory.graph_memory":
+            raise ImportError("rank_bm25 is not installed")
+        return __import__(name, fromlist=["*"])
+
+    with patch("importlib.import_module", side_effect=fake_import_module), \
+         patch.dict(
+             sys.modules,
+             {
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+             },
+         ), \
+         caplog.at_level(logging.WARNING):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert len(init_configs) == 1
+    assert "graph_store" not in init_configs[0]
+    assert any("graph" in record.message.lower() for record in caplog.records)
+
+
+
+def test_get_memory_store_skips_graph_init_when_graph_module_dependency_is_missing(monkeypatch, caplog):
+    init_configs = []
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            init_configs.append(config)
+            self.vector_store = None
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    def fake_import_module(name, package=None):
+        if name == "mem0.memory.graph_memory":
+            raise ImportError("rank_bm25 is not installed")
+        return __import__(name, fromlist=["*"])
+
+    with patch("importlib.import_module", side_effect=fake_import_module), \
+         patch.dict(
+             sys.modules,
+             {
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+             },
+         ), \
+         caplog.at_level(logging.WARNING):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert len(init_configs) == 1
+    assert "graph_store" not in init_configs[0]
+    assert any("graph" in record.message.lower() for record in caplog.records)
+
+
+
+def test_get_memory_store_skips_graph_init_when_neo4j_connectivity_check_fails(monkeypatch, caplog):
+    init_configs = []
+
+    class FakeMemory:
+        def __init__(self, config=None):
+            init_configs.append(config)
+            self.vector_store = None
+
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-4o")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "neo4j",
+                    "password": "secret",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    class FakeDriver:
+        def verify_connectivity(self):
+            raise RuntimeError("connect refused")
+
+        def close(self):
+            return None
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()), \
+         patch.dict(
+             sys.modules,
+             {
+                 "neo4j": SimpleNamespace(GraphDatabase=SimpleNamespace(driver=lambda *args, **kwargs: FakeDriver())),
+                 "mem0": SimpleNamespace(Memory=FakeMemory),
+                 "mem0.configs.base": SimpleNamespace(MemoryConfig=lambda **kwargs: kwargs),
+             },
+         ), \
+         caplog.at_level(logging.WARNING):
+        store = memory.get_memory_store(settings)
+
+    assert store is not None
+    assert len(init_configs) == 1
+    assert "graph_store" not in init_configs[0]
+    assert any("graph" in record.message.lower() for record in caplog.records)
+
 
 
 def test_get_memory_store_embedder_falls_back_to_openai_connection_env(monkeypatch):

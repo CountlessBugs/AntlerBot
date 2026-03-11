@@ -1,7 +1,10 @@
+import importlib
 import logging
 import os
 import re
 from datetime import UTC, datetime
+from pathlib import Path
+from types import MethodType
 
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately
@@ -126,6 +129,7 @@ def _resolve_mem0_llm_config() -> dict:
     return {"provider": provider, "config": config}
 
 
+
 def _resolve_mem0_embedder_config() -> dict:
     provider = _require_mem0_field(_get_env("MEM0_EMBEDDER_PROVIDER") or "openai", "MEM0_EMBEDDER_PROVIDER")
     model = _require_mem0_field(_get_env("MEM0_EMBEDDER_MODEL") or "text-embedding-3-small", "MEM0_EMBEDDER_MODEL")
@@ -139,6 +143,31 @@ def _resolve_mem0_embedder_config() -> dict:
     return {"provider": provider, "config": config}
 
 
+
+def _resolve_project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+
+def _resolve_vector_store_config(settings: dict) -> dict:
+    vector_store_settings = settings.get("memory", {}).get("vector_store", {})
+    provider = vector_store_settings.get("provider", "qdrant")
+    config = {
+        **{
+            "collection_name": "mem0",
+            "path": "data/mem0/qdrant",
+            "on_disk": True,
+        },
+        **dict(vector_store_settings.get("config", {})),
+    }
+    if provider == "qdrant" and config.get("path"):
+        vector_path = Path(str(config["path"]))
+        if not vector_path.is_absolute():
+            config["path"] = str((_resolve_project_root() / vector_path).resolve())
+    return {"provider": provider, "config": config}
+
+
+
 def _resolve_graph_store_config(settings: dict) -> dict | None:
     graph_settings = settings.get("memory", {}).get("graph", {})
     if not graph_settings.get("enabled"):
@@ -148,10 +177,88 @@ def _resolve_graph_store_config(settings: dict) -> dict | None:
     if max_hops != 1:
         raise RuntimeError("memory.graph.max_hops currently only supports value 1.")
 
-    return {
-        "provider": graph_settings.get("provider", "neo4j"),
-        "config": dict(graph_settings.get("config", {})),
+    provider = graph_settings.get("provider", "neo4j")
+    config = {
+        key: str(value) if value is not None and not isinstance(value, str) else value
+        for key, value in dict(graph_settings.get("config", {})).items()
     }
+    required_fields_by_provider = {
+        "neo4j": ("url", "username", "password"),
+        "memgraph": ("url", "username", "password"),
+    }
+    provider_graph_modules = {
+        "neo4j": "mem0.memory.graph_memory",
+        "memgraph": "mem0.memory.graph_memory",
+    }
+    missing_fields = [field for field in required_fields_by_provider.get(provider, ()) if not config.get(field)]
+    if missing_fields:
+        raise RuntimeError(
+            f"memory.graph.config missing required fields for {provider}: {', '.join(missing_fields)}"
+        )
+
+    graph_module = provider_graph_modules.get(provider)
+    if graph_module is not None:
+        try:
+            importlib.import_module(graph_module)
+            _verify_graph_connectivity(provider, config)
+        except Exception as exc:
+            raise RuntimeError(
+                f"memory.graph provider '{provider}' is unavailable or unreachable"
+            ) from exc
+
+    return {
+        "provider": provider,
+        "config": config,
+    }
+
+
+
+
+
+def _verify_graph_connectivity(provider: str, config: dict) -> None:
+    if provider not in {"neo4j", "memgraph"}:
+        return
+    from neo4j import GraphDatabase
+
+    driver = GraphDatabase.driver(
+        config.get("url"),
+        auth=(config.get("username"), config.get("password")),
+    )
+    try:
+        driver.verify_connectivity()
+    finally:
+        driver.close()
+
+
+    vector_store = getattr(store, "vector_store", None)
+    close_method = getattr(vector_store, "close", None)
+    if callable(close_method):
+        try:
+            close_method()
+        except Exception:
+            logger.warning("failed to close mem0 vector store during fallback cleanup", exc_info=True)
+
+
+
+def _patch_vector_store_update_for_payload_only(vector_store) -> None:
+    if getattr(vector_store, "_antlerbot_payload_only_patch", False):
+        return
+
+    client = getattr(vector_store, "client", None)
+    collection_name = getattr(vector_store, "collection_name", None)
+    original_update = getattr(vector_store, "update", None)
+    set_payload = getattr(client, "set_payload", None)
+    if not callable(original_update) or not callable(set_payload) or not collection_name:
+        return
+
+    def patched_update(self, vector_id, vector=None, payload=None):
+        if vector is None and payload is not None:
+            set_payload(collection_name=collection_name, payload=payload, points=[vector_id])
+            return None
+        return original_update(vector_id=vector_id, vector=vector, payload=payload)
+
+    vector_store.update = MethodType(patched_update, vector_store)
+    vector_store._antlerbot_payload_only_patch = True
 
 
 def get_memory_store(settings: dict):
@@ -163,16 +270,28 @@ def get_memory_store(settings: dict):
         config_kwargs = {
             "llm": _resolve_mem0_llm_config(),
             "embedder": _resolve_mem0_embedder_config(),
+            "vector_store": _resolve_vector_store_config(settings),
         }
-        graph_store = _resolve_graph_store_config(settings)
+        try:
+            graph_store = _resolve_graph_store_config(settings)
+        except Exception:
+            logger.warning("Mem0 graph store configuration is invalid; falling back to vector-only mode.", exc_info=True)
+            graph_store = None
         if graph_store is not None:
             try:
                 _MEMORY_STORE = Memory(MemoryConfig(**{**config_kwargs, "graph_store": graph_store}))
             except Exception:
+                failed_store = _MEMORY_STORE
+                if failed_store is not None:
+                    _close_memory_store_vector_store(failed_store)
+                _MEMORY_STORE = None
                 logger.warning("Mem0 graph store initialization failed; falling back to vector-only mode.", exc_info=True)
                 _MEMORY_STORE = Memory(MemoryConfig(**config_kwargs))
         else:
             _MEMORY_STORE = Memory(MemoryConfig(**config_kwargs))
+        vector_store = getattr(_MEMORY_STORE, "vector_store", None)
+        if vector_store is not None:
+            _patch_vector_store_update_for_payload_only(vector_store)
     return _MEMORY_STORE
 
 
@@ -243,7 +362,8 @@ def build_recall_metadata_update(current_metadata: dict | None, recalled_at: str
 def try_update_memory_recall_metadata(store, memory_id: str, recalled_at: str) -> bool:
     get_method = getattr(store, "get", None)
     update_method = getattr(store, "update", None)
-    if not callable(get_method) or not callable(update_method):
+    internal_update_method = getattr(store, "_update_memory", None)
+    if not callable(get_method) or (not callable(update_method) and not callable(internal_update_method)):
         logger.info("mem0 memory store does not support get/update metadata operations")
         return False
 
@@ -259,7 +379,14 @@ def try_update_memory_recall_metadata(store, memory_id: str, recalled_at: str) -
             return False
 
         metadata = build_recall_metadata_update(current.get("metadata", {}), recalled_at)
-        update_method(memory_id, {"memory": text, "metadata": metadata})
+
+        if callable(internal_update_method):
+            internal_update_method(memory_id, text, {}, metadata=metadata)
+        else:
+            try:
+                update_method(memory_id, text, metadata=metadata)
+            except TypeError:
+                update_method(memory_id, {"memory": text, "metadata": metadata})
         return True
     except Exception:
         logger.warning("mem0 recall metadata update failed", exc_info=True)

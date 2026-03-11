@@ -85,6 +85,8 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `memory.recall_<等级>_score_threshold` | `recall_memory` 工具在对应 effort 下的最低相似度阈值 |
 | `memory.recall_<等级>_max_memories` | `recall_memory` 工具在对应 effort 下的最大返回条数 |
 | `memory.reset_seen_on_summary` | 摘要或清空上下文后，是否重置本会话内的记忆计数与上下文锁定状态 |
+| `memory.vector_store.provider` | 向量存储后端提供者，透传给 Mem0，默认 `qdrant` |
+| `memory.vector_store.config` | 向量存储后端配置，默认持久化到 `data/mem0/qdrant` |
 | `memory.graph.enabled` | 是否启用 Mem0 图记忆联想增强 |
 | `memory.graph.provider` | 图存储后端提供者，透传给 Mem0 |
 | `memory.graph.config` | 图存储后端配置（如 Neo4j 连接信息），透传给 Mem0 |
@@ -184,7 +186,7 @@ LLM 可通过工具调用创建和取消定时任务，任务持久化存储于 
 - **异步存储**：在会话摘要生成后，自动将摘要异步写入长期记忆。
 - **主动检索工具**：Agent 可通过 `recall_memory` 工具按不同努力程度检索长期记忆。
 
-Mem0 图记忆联想是可选增强能力，继续复用同一个 `recall_memory` 工具与自动检索流程；当 `memory.graph` 未启用、图存储不可用，或图初始化失败时，系统会自动回退到纯向量记忆模式。
+Mem0 图记忆联想是可选增强能力，继续复用同一个 `recall_memory` 工具与自动检索流程；当 `memory.graph` 未启用、图存储不可用，或图初始化失败时，系统会自动回退到纯向量记忆模式，并继续复用 `memory.vector_store` 中配置的持久化向量库，而不会退回临时 `/tmp/qdrant` 路径。
 
 自动检索到的长期记忆只会作为当前轮的临时系统上下文参与推理，不会写入持久 `_history`；主动调用 `recall_memory` 工具检索到的内容会进入当前对话上下文。
 

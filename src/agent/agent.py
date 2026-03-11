@@ -58,6 +58,14 @@ _SETTINGS_DEFAULTS = {
         "recall_high_score_threshold": 0.55,
         "recall_high_max_memories": 10,
         "reset_seen_on_summary": True,
+        "vector_store": {
+            "provider": "qdrant",
+            "config": {
+                "collection_name": "mem0",
+                "path": "data/mem0/qdrant",
+                "on_disk": True,
+            },
+        },
         "graph": {
             "enabled": False,
             "provider": "neo4j",
@@ -113,10 +121,21 @@ def load_settings() -> dict:
             **user_graph.get("config", {}),
         },
     }
+    default_vector_store = default_memory.get("vector_store", {})
+    user_vector_store = user_memory.get("vector_store", {})
+    merged_vector_store = {
+        **default_vector_store,
+        **user_vector_store,
+        "config": {
+            **default_vector_store.get("config", {}),
+            **user_vector_store.get("config", {}),
+        },
+    }
     merged["memory"] = {
         **default_memory,
         **user_memory,
         "graph": merged_graph,
+        "vector_store": merged_vector_store,
     }
     return merged
 
