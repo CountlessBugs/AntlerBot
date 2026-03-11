@@ -143,6 +143,11 @@ def _resolve_graph_store_config(settings: dict) -> dict | None:
     graph_settings = settings.get("memory", {}).get("graph", {})
     if not graph_settings.get("enabled"):
         return None
+
+    max_hops = graph_settings.get("max_hops", 1)
+    if max_hops != 1:
+        raise RuntimeError("memory.graph.max_hops currently only supports value 1.")
+
     return {
         "provider": graph_settings.get("provider", "neo4j"),
         "config": dict(graph_settings.get("config", {})),
@@ -360,6 +365,7 @@ def build_recall_tool(settings: dict):
         relations = []
         if isinstance(raw_results, dict) and graph_settings.get("enabled") and graph_settings.get("manual_recall_enabled"):
             relations = _trim_relations(raw_results.get("relations", []), graph_settings.get("context_max_relations", 8))
+        relation_prefix = graph_settings.get("context_prefix") if graph_settings.get("enabled") else None
         recalled_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         for item in filtered:
             item_id = item.get("id")
@@ -367,7 +373,7 @@ def build_recall_tool(settings: dict):
                 try_update_memory_recall_metadata(store, str(item_id), recalled_at)
         mark_counted_memory_ids(filtered)
         lock_memory_ids_for_session(filtered)
-        return format_recall_result(filtered, effort_label, relations=relations)
+        return format_recall_result(filtered, effort_label, relations=relations, relation_prefix=relation_prefix)
 
     return recall_memory
 
@@ -395,6 +401,7 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
     if isinstance(raw_results, dict) and graph_settings.get("enabled") and graph_settings.get("auto_recall_enabled"):
         relations = _trim_relations(raw_results.get("relations", []), graph_settings.get("context_max_relations", 8))
 
+    relation_prefix = graph_settings.get("context_prefix") if graph_settings.get("enabled") else None
     recalled_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     for item in filtered:
         item_id = item.get("id")
@@ -405,6 +412,7 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
         filtered,
         memory_settings.get("auto_recall_system_prefix", "以下是可能与当前对话相关的长期记忆。仅在相关时使用，不要机械复述。"),
         relations=relations,
+        relation_prefix=relation_prefix,
     )
 
 

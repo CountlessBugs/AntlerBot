@@ -210,6 +210,42 @@ def test_build_auto_recall_system_message_omits_relations_when_graph_auto_recall
     assert "联想关系：" not in message.content
 
 
+def test_build_auto_recall_system_message_uses_graph_context_prefix_when_provided():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"}],
+            }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    history = [HumanMessage("你好")]
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "auto_recall_query_token_limit": 50,
+            "auto_recall_score_threshold": 0.5,
+            "auto_recall_max_memories": 5,
+            "auto_recall_system_prefix": "前缀",
+            "graph": {
+                "enabled": True,
+                "auto_recall_enabled": True,
+                "context_max_relations": 8,
+                "context_prefix": "以下是图联想提示：",
+            },
+        }
+    }
+
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        message = memory.build_auto_recall_system_message(history, settings)
+
+    assert message is not None
+    assert "以下是图联想提示：" in message.content
+    assert "联想关系：" not in message.content
+
+
 def test_build_auto_recall_system_message_keeps_memory_section_when_relations_are_malformed():
     class FakeStore:
         def search(self, query, **kwargs):
@@ -497,6 +533,60 @@ def test_manual_recall_enforces_context_max_relations():
         result = memory.build_recall_tool(settings).func("用户目标", "medium")
 
     assert result.count("-[") == 1
+
+
+def test_manual_recall_uses_graph_context_prefix_when_provided():
+    class FakeStore:
+        def search(self, query, **kwargs):
+            return {
+                "results": [{"id": "1", "memory": "用户想让 bot 更像真实的人", "score": 0.9}],
+                "relations": [{"source": "bot", "relationship": "目标", "destination": "真实的人类式记忆"}],
+            }
+
+    settings = {
+        "memory": {
+            "agent_id": "antlerbot",
+            "graph": {
+                "enabled": True,
+                "manual_recall_enabled": True,
+                "context_max_relations": 8,
+                "context_prefix": "以下是图联想提示：",
+            },
+            "recall_medium_score_threshold": 0.7,
+            "recall_medium_max_memories": 6,
+        }
+    }
+
+    memory.reset_counted_memory_ids()
+    memory.reset_context_locked_memory_ids()
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()), \
+         patch("src.agent.memory.try_update_memory_recall_metadata", return_value=True):
+        result = memory.build_recall_tool(settings).func("用户目标", "medium")
+
+    assert "以下是图联想提示：" in result
+    assert "联想关系：" not in result
+
+
+def test_get_memory_store_rejects_graph_max_hops_other_than_one(monkeypatch):
+    monkeypatch.setattr(memory, "_MEMORY_STORE", None)
+
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {"url": "bolt://localhost:7687"},
+                "max_hops": 2,
+            }
+        }
+    }
+
+    try:
+        memory._resolve_graph_store_config(settings)
+    except RuntimeError as exc:
+        assert "max_hops" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError for unsupported max_hops")
 
 
 def test_get_memory_store_uses_main_llm_when_mem0_llm_env_is_unset(monkeypatch):
