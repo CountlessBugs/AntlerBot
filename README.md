@@ -85,6 +85,14 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `memory.recall_<等级>_score_threshold` | `recall_memory` 工具在对应 effort 下的最低相似度阈值 |
 | `memory.recall_<等级>_max_memories` | `recall_memory` 工具在对应 effort 下的最大返回条数 |
 | `memory.reset_seen_on_summary` | 摘要或清空上下文后，是否重置本会话内的记忆计数与上下文锁定状态 |
+| `memory.graph.enabled` | 是否启用 Mem0 图记忆联想增强 |
+| `memory.graph.provider` | 图存储后端提供者，透传给 Mem0 |
+| `memory.graph.config` | 图存储后端配置（如 Neo4j 连接信息），透传给 Mem0 |
+| `memory.graph.auto_recall_enabled` | 是否在自动检索时追加图关系联想 |
+| `memory.graph.manual_recall_enabled` | 是否在 `recall_memory` 工具中追加图关系联想 |
+| `memory.graph.context_max_relations` | 单次注入上下文时最多保留多少条关系联想 |
+| `memory.graph.max_hops` | 图联想最大跳数，当前版本仅支持 `1` |
+| `memory.graph.context_prefix` | 图关系联想注入到模型前的提示前缀 |
 | `media.timeout` | 媒体处理超时时间（秒） |
 | `media.max_file_size_mb` | 超过此大小的文件直接跳过 |
 | `media.transcribe_threshold_mb` | 直传/转录分界阈值（设为 0 始终转录，不设始终直传） |
@@ -175,6 +183,8 @@ LLM 可通过工具调用创建和取消定时任务，任务持久化存储于 
 - **自动检索**：在用户发言前，根据最近一段对话构造查询，自动检索相关长期记忆。
 - **异步存储**：在会话摘要生成后，自动将摘要异步写入长期记忆。
 - **主动检索工具**：Agent 可通过 `recall_memory` 工具按不同努力程度检索长期记忆。
+
+Mem0 图记忆联想是可选增强能力，继续复用同一个 `recall_memory` 工具与自动检索流程；当 `memory.graph` 未启用、图存储不可用，或图初始化失败时，系统会自动回退到纯向量记忆模式。
 
 自动检索到的长期记忆只会作为当前轮的临时系统上下文参与推理，不会写入持久 `_history`；主动调用 `recall_memory` 工具检索到的内容会进入当前对话上下文。
 

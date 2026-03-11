@@ -42,6 +42,35 @@ memory:
   # 每次摘要后是否重置“已见过”的长期记忆 ID 集合
   reset_seen_on_summary: true
 
+  graph:
+    # 是否启用图记忆联想增强
+    enabled: false
+
+    # 图存储后端提供者，透传给 Mem0
+    provider: neo4j
+
+    # 图存储后端配置，透传给 Mem0
+    config:
+      url: bolt://localhost:7687
+      username: neo4j
+      password: password
+      database: neo4j
+
+    # 是否在自动检索时追加关系联想
+    auto_recall_enabled: true
+
+    # 是否在 recall_memory 工具中追加关系联想
+    manual_recall_enabled: true
+
+    # 单次注入上下文时最多保留多少条关系联想
+    context_max_relations: 8
+
+    # 当前版本仅支持 1 跳联想
+    max_hops: 1
+
+    # 关系联想注入到模型前的提示前缀
+    context_prefix: 以下是与当前长期记忆相关的关系联想。仅在相关时使用，不要机械复述。
+
 media:
   timeout: 180
 
