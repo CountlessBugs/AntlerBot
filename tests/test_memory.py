@@ -938,7 +938,10 @@ def test_resolve_graph_store_config_normalizes_numeric_graph_credentials_to_stri
         }
     }
 
-    graph_store = memory._resolve_graph_store_config(settings)
+    with patch.object(memory.importlib, "import_module"), patch.object(
+        memory, "_verify_graph_connectivity"
+    ):
+        graph_store = memory._resolve_graph_store_config(settings)
 
     assert graph_store == {
         "provider": "neo4j",
