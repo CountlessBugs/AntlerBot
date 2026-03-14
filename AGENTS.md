@@ -77,10 +77,10 @@ Core features implemented:
 
 # Adding Configuration Items
 
-When adding new configuration items to `settings.yaml`, update all three locations:
+When adding new configuration items to `settings.yaml`, update all four locations:
 1. `config/agent/settings.yaml` - add the config item with appropriate value
 2. `config/agent/settings.yaml.example` - add the config item with default value and comment
-3. `README.md` - add documentation in the settings table (around line 60)
+3. `docs/configuration.md` - add documentation for the new config item
 4. `src/agent/agent.py` - add default value to `_SETTINGS_DEFAULTS` dict
 
 When writing YAML example values for settings that are semantically strings but may be mis-typed by YAML parsers (for example IDs, usernames, passwords, database names, tokens, or values with leading zeros), quote them explicitly. Leave URLs unquoted unless quoting is required for correctness.

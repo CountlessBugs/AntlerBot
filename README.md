@@ -38,70 +38,36 @@ cp .env.example .env
 cp config/agent/prompt.txt.example config/agent/prompt.txt
 ```
 
-编辑 `.env`：
+### 最小可运行配置
 
-| 变量 | 说明 |
-|------|------|
-| `LLM_PROVIDER` | 模型供应商，如 `openai`、`anthropic`、`ollama` |
-| `LLM_MODEL` | 模型名称，如 `gpt-5`、`deepseek-chat` |
-| `OPENAI_API_KEY` | 对应供应商的 API Key |
-| `OPENAI_BASE_URL` | 可选，自定义 API 端点 |
-| `TRANSCRIPTION_PROVIDER` | 可选，媒体转录使用的模型供应商（不设则复用 `LLM_PROVIDER`） |
-| `TRANSCRIPTION_MODEL` | 可选，媒体转录使用的模型名称（不设则复用 `LLM_MODEL`） |
-| `TRANSCRIPTION_API_KEY` | 可选，转录模型的 API Key（不设则复用 `OPENAI_API_KEY`） |
-| `TRANSCRIPTION_BASE_URL` | 可选，转录模型的 API 端点（不设则复用 `OPENAI_BASE_URL`） |
-| `MEM0_LLM_PROVIDER` | 可选，Mem0 使用的模型供应商（不设则回退到 `LLM_PROVIDER`） |
-| `MEM0_LLM_MODEL` | 可选，Mem0 使用的模型名称（不设则回退到 `LLM_MODEL`） |
-| `MEM0_LLM_API_KEY` | 可选，Mem0 LLM 的 API Key（不设则回退到 `OPENAI_API_KEY`） |
-| `MEM0_LLM_BASE_URL` | 可选，Mem0 LLM 的 API 端点（不设则回退到 `OPENAI_BASE_URL`） |
-| `MEM0_EMBEDDER_PROVIDER` | 可选，Mem0 embedding 模型供应商（默认 `openai`） |
-| `MEM0_EMBEDDER_MODEL` | 可选，Mem0 embedding 模型名称（默认 `text-embedding-3-small`） |
-| `MEM0_EMBEDDER_API_KEY` | 可选，Mem0 embedding 的 API Key（不设则回退到 `OPENAI_API_KEY`） |
-| `MEM0_EMBEDDER_BASE_URL` | 可选，Mem0 embedding 的 API 端点（不设则回退到 `OPENAI_BASE_URL`） |
+编辑 `.env`，至少填写以下常用项：
 
-> 使用非 OpenAI 供应商时，API Key 应设置为对应的环境变量（如 `ANTHROPIC_API_KEY`），`OPENAI_API_KEY` 仅在使用 OpenAI 兼容接口时需要。
->
-> Mem0 的模型配置方式与转录模型类似：可通过 `MEM0_LLM_*` 单独指定长期记忆使用的 LLM；若未设置，则回退到主模型 `LLM_PROVIDER` / `LLM_MODEL` 及对应连接信息。Mem0 embedding 默认使用 `openai` 的 `text-embedding-3-small`，也可通过 `MEM0_EMBEDDER_*` 单独覆盖；若未单独设置连接信息，则回退到 `OPENAI_API_KEY` / `OPENAI_BASE_URL`。
+| 变量 | 是否常用 | 说明 |
+|------|----------|------|
+| `LLM_PROVIDER` | 必填 | 模型供应商，如 `openai`、`anthropic`、`ollama` |
+| `LLM_MODEL` | 必填 | 模型名称，如 `gpt-5`、`claude-sonnet-4-5`、`deepseek-chat` |
+| `OPENAI_API_KEY` | 常见必填 | 对应供应商的 API Key；使用 OpenAI 兼容接口时填写这里 |
+| `OPENAI_BASE_URL` | 可选 | 自定义 API 端点 |
+
+> 使用非 OpenAI 供应商时，API Key 应设置为对应的环境变量（如 `ANTHROPIC_API_KEY`）。`OPENAI_API_KEY` 仅在使用 OpenAI 或 OpenAI 兼容接口时需要。
 
 编辑 `config/agent/prompt.txt` 设置机器人的系统提示词。
 
-`config/agent/settings.yaml` 控制运行时行为（可选，缺失时使用内置默认值）：
+`config/agent/settings.yaml` 用于控制运行时行为；如果你只是先把机器人跑起来，通常不需要修改大多数字段。
 
-| 字段 | 说明 |
-|------|------|
-| `temperature` | 模型采样温度 |
-| `context_limit_tokens` | 上下文窗口限制，超过时触发自动摘要 |
-| `timeout_summarize_seconds` | 无消息多少秒后触发会话摘要 |
-| `timeout_clear_seconds` | 会话摘要后多少秒清空历史 |
-| `reply_quote_truncate_length` | 回复消息引用的最大截断长度 |
-| `memory.enabled` | 是否启用 Mem0 长期记忆 |
-| `memory.agent_id` | Mem0 中用于隔离机器人记忆空间的 agent_id |
-| `memory.auto_recall_enabled` | 是否在用户发言前自动检索相关长期记忆（仅作为当前轮临时上下文注入，不写入持久对话历史） |
-| `memory.auto_store_enabled` | 是否在摘要后异步写入长期记忆 |
-| `memory.auto_recall_query_token_limit` | 自动检索查询窗口的近似 token 上限 |
-| `memory.auto_recall_score_threshold` | 自动检索结果的最低相似度阈值 |
-| `memory.auto_recall_max_memories` | 自动检索最多注入多少条长期记忆 |
-| `memory.auto_recall_system_prefix` | 自动检索注入到模型前的系统提示前缀 |
-| `memory.recall_<等级>_score_threshold` | `recall_memory` 工具在对应 effort 下的最低相似度阈值 |
-| `memory.recall_<等级>_max_memories` | `recall_memory` 工具在对应 effort 下的最大返回条数 |
-| `memory.reset_seen_on_summary` | 摘要或清空上下文后，是否重置本会话内的记忆计数与上下文锁定状态 |
-| `memory.vector_store.provider` | 向量存储后端提供者，透传给 Mem0，默认 `qdrant` |
-| `memory.vector_store.config` | 向量存储后端配置，默认持久化到 `data/mem0/qdrant` |
-| `memory.graph.enabled` | 是否启用 Mem0 图记忆联想增强 |
-| `memory.graph.provider` | 图存储后端提供者，透传给 Mem0 |
-| `memory.graph.config` | 图存储后端配置（如 Neo4j 连接信息），透传给 Mem0 |
-| `memory.graph.auto_recall_enabled` | 是否在自动检索时追加图关系联想 |
-| `memory.graph.manual_recall_enabled` | 是否在 `recall_memory` 工具中追加图关系联想 |
-| `memory.graph.context_max_relations` | 单次注入上下文时最多保留多少条关系联想 |
-| `memory.graph.max_hops` | 图联想最大跳数，当前版本仅支持 `1` |
-| `memory.graph.context_prefix` | 图关系联想注入到模型前的提示前缀 |
-| `media.timeout` | 媒体处理超时时间（秒） |
-| `media.max_file_size_mb` | 超过此大小的文件直接跳过 |
-| `media.transcribe_threshold_mb` | 直传/转录分界阈值（设为 0 始终转录，不设始终直传） |
-| `media.sync_process_threshold_mb` | ≤ 此值同步处理，> 此值走异步占位符流程 |
-| `media.<类型>.enabled` | 是否处理该类型媒体 |
-| `media.<类型>.max_duration` | 音频/视频最大时长（秒），超过该时长的媒体将被跳过或裁剪 |
-| `media.<类型>.trim_over_limit` | 超时长时是否裁剪（裁剪需要 ffmpeg） |
+该部分配置仅可实现基本的对话功能。更详细的配置说明、长期记忆和图记忆配置、媒体处理相关配置等请参见高级配置部分。
+
+### 高级配置
+
+以下内容位于独立文档：
+
+- 完整 `.env` 变量说明
+- `config/agent/settings.yaml` 全量字段说明
+- Mem0 长期记忆配置
+- Neo4j 图记忆配置与部署示例
+- 媒体处理相关配置
+
+详见 [docs/configuration.md](docs/configuration.md)。
 
 使用非 OpenAI 供应商时需安装对应包，例如：
 ```bash
@@ -186,7 +152,7 @@ LLM 可通过工具调用创建和取消定时任务，任务持久化存储于 
 - **异步存储**：在会话摘要生成后，自动将摘要异步写入长期记忆。
 - **主动检索工具**：Agent 可通过 `recall_memory` 工具按不同努力程度检索长期记忆。
 
-Mem0 图记忆联想是可选增强能力，继续复用同一个 `recall_memory` 工具与自动检索流程；当 `memory.graph` 未启用、图存储不可用，或图初始化失败时，系统会自动回退到纯向量记忆模式，并继续复用 `memory.vector_store` 中配置的持久化向量库，而不会退回临时 `/tmp/qdrant` 路径。
+项目支持 Mem0 图记忆联想能力。当 `memory.graph` 未启用、图存储不可用，或图初始化失败时，系统会自动回退到纯向量记忆模式。
 
 自动检索到的长期记忆只会作为当前轮的临时系统上下文参与推理，不会写入持久 `_history`；主动调用 `recall_memory` 工具检索到的内容会进入当前对话上下文。
 
