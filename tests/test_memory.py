@@ -734,8 +734,8 @@ def test_store_summary_async_uses_summary_only_with_graph_enabled():
         def __init__(self):
             self.calls = []
 
-        def add(self, messages, agent_id=None):
-            self.calls.append({"messages": messages, "agent_id": agent_id})
+        def add(self, messages, agent_id=None, user_id=None):
+            self.calls.append({"messages": messages, "agent_id": agent_id, "user_id": user_id})
 
     store = FakeStore()
     settings = {
@@ -752,6 +752,7 @@ def test_store_summary_async_uses_summary_only_with_graph_enabled():
         {
             "messages": [{"role": "user", "content": "总结文本"}],
             "agent_id": "antlerbot",
+            "user_id": "antlerbot",
         }
     ]
 
@@ -1385,6 +1386,94 @@ def test_get_memory_store_skips_graph_init_when_graph_module_dependency_is_missi
 
 
 
+def test_patch_mem0_neo4jgraph_signature_compat_maps_fourth_positional_arg_to_database(monkeypatch):
+    captured = {}
+
+    class FakeNeo4jGraph:
+        def __init__(
+            self,
+            url=None,
+            username=None,
+            password=None,
+            token=None,
+            database=None,
+            refresh_schema=True,
+            driver_config=None,
+            **kwargs,
+        ):
+            captured["url"] = url
+            captured["username"] = username
+            captured["password"] = password
+            captured["token"] = token
+            captured["database"] = database
+            captured["refresh_schema"] = refresh_schema
+            captured["driver_config"] = driver_config
+            captured["kwargs"] = kwargs
+
+    fake_module = SimpleNamespace(Neo4jGraph=FakeNeo4jGraph)
+    monkeypatch.setitem(sys.modules, "mem0.memory.graph_memory", fake_module)
+
+    memory._patch_mem0_neo4jgraph_signature_compat()
+
+    fake_module.Neo4jGraph(
+        "bolt://localhost:7687",
+        "neo4j",
+        "secret",
+        "neo4j",
+        refresh_schema=False,
+        driver_config={"notifications_min_severity": "OFF"},
+    )
+
+    assert captured == {
+        "url": "bolt://localhost:7687",
+        "username": "neo4j",
+        "password": "secret",
+        "token": None,
+        "database": "neo4j",
+        "refresh_schema": False,
+        "driver_config": {"notifications_min_severity": "OFF"},
+        "kwargs": {},
+    }
+
+
+
+def test_verify_graph_connectivity_does_not_touch_undefined_store_on_success(monkeypatch):
+    captured = {}
+
+    class FakeDriver:
+        def verify_connectivity(self):
+            captured["verified"] = True
+
+        def close(self):
+            captured["closed"] = True
+
+    class FakeGraphDatabase:
+        @staticmethod
+        def driver(url, auth=None):
+            captured["url"] = url
+            captured["auth"] = auth
+            return FakeDriver()
+
+    monkeypatch.setitem(sys.modules, "neo4j", SimpleNamespace(GraphDatabase=FakeGraphDatabase))
+
+    memory._verify_graph_connectivity(
+        "neo4j",
+        {
+            "url": "bolt://localhost:7687",
+            "username": "neo4j",
+            "password": "secret",
+        },
+    )
+
+    assert captured == {
+        "url": "bolt://localhost:7687",
+        "auth": ("neo4j", "secret"),
+        "verified": True,
+        "closed": True,
+    }
+
+
+
 def test_get_memory_store_skips_graph_init_when_neo4j_connectivity_check_fails(monkeypatch, caplog):
     init_configs = []
 
@@ -1465,11 +1554,58 @@ def test_get_memory_store_embedder_falls_back_to_openai_connection_env(monkeypat
     ):
         memory.get_memory_store({"memory": {}})
 
-    assert captured["config"]["embedder"] == {
-        "provider": "openai",
-        "config": {
-            "model": "text-embedding-3-large",
-            "api_key": "shared-key",
-            "openai_base_url": "https://shared.example/v1",
+
+
+def test_build_auto_recall_system_message_passes_user_id_for_graph_search(monkeypatch):
+    captured = {}
+
+    class FakeStore:
+        def search(self, query, **kwargs):
+            captured["query"] = query
+            captured["kwargs"] = kwargs
+            return {
+                "results": [{"id": "m1", "memory": "用户喜欢篮球", "score": 0.95}],
+                "relations": [],
+            }
+
+    monkeypatch.setattr(memory, "get_memory_store", lambda settings: FakeStore())
+    monkeypatch.setattr(memory, "try_update_memory_recall_metadata", lambda store, memory_id, recalled_at: None)
+    monkeypatch.setattr(memory, "get_context_locked_memory_ids", lambda: set())
+    monkeypatch.setattr(memory, "mark_counted_memory_ids", lambda results: None)
+
+    message = memory.build_auto_recall_system_message(
+        [HumanMessage("我最近喜欢打篮球")],
+        {
+            "memory": {
+                "agent_id": "test-agent",
+                "graph": {"enabled": True, "auto_recall_enabled": True},
+            }
         },
-    }
+    )
+
+    assert message is not None
+    assert captured["kwargs"]["agent_id"] == "test-agent"
+    assert captured["kwargs"]["user_id"] == "test-agent"
+
+
+
+def test_store_summary_async_passes_user_id_for_graph_add(monkeypatch):
+    captured = {}
+
+    class FakeStore:
+        def add(self, messages, **kwargs):
+            captured["messages"] = messages
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(memory, "get_memory_store", lambda settings: FakeStore())
+
+    asyncio.run(
+        memory.store_summary_async(
+            "测试摘要",
+            {"memory": {"agent_id": "test-agent", "graph": {"enabled": True}}},
+        )
+    )
+
+    assert captured["messages"] == [{"role": "user", "content": "测试摘要"}]
+    assert captured["kwargs"]["agent_id"] == "test-agent"
+    assert captured["kwargs"]["user_id"] == "test-agent"

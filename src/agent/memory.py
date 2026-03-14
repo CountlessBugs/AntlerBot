@@ -2,6 +2,7 @@ import importlib
 import logging
 import os
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MethodType
@@ -168,6 +169,39 @@ def _resolve_vector_store_config(settings: dict) -> dict:
 
 
 
+def _patch_mem0_neo4jgraph_signature_compat() -> None:
+    graph_memory_module = sys.modules.get("mem0.memory.graph_memory")
+    if graph_memory_module is None:
+        return
+
+    neo4j_graph_class = getattr(graph_memory_module, "Neo4jGraph", None)
+    if neo4j_graph_class is None or getattr(neo4j_graph_class, "_antlerbot_signature_compat_patch", False):
+        return
+
+    original_init = getattr(neo4j_graph_class, "__init__", None)
+    if not callable(original_init):
+        return
+
+    def patched_init(self, url=None, username=None, password=None, *args, **kwargs):
+        if args and "database" not in kwargs and "token" not in kwargs:
+            database, *remaining_args = args
+            return original_init(
+                self,
+                url=url,
+                username=username,
+                password=password,
+                token=None,
+                database=database,
+                *remaining_args,
+                **kwargs,
+            )
+        return original_init(self, url=url, username=username, password=password, *args, **kwargs)
+
+    neo4j_graph_class.__init__ = patched_init
+    neo4j_graph_class._antlerbot_signature_compat_patch = True
+
+
+
 def _resolve_graph_store_config(settings: dict) -> dict | None:
     graph_settings = settings.get("memory", {}).get("graph", {})
     if not graph_settings.get("enabled"):
@@ -200,6 +234,7 @@ def _resolve_graph_store_config(settings: dict) -> dict | None:
     if graph_module is not None:
         try:
             importlib.import_module(graph_module)
+            _patch_mem0_neo4jgraph_signature_compat()
             _verify_graph_connectivity(provider, config)
         except Exception as exc:
             raise RuntimeError(
@@ -228,16 +263,6 @@ def _verify_graph_connectivity(provider: str, config: dict) -> None:
         driver.verify_connectivity()
     finally:
         driver.close()
-
-
-    vector_store = getattr(store, "vector_store", None)
-    close_method = getattr(vector_store, "close", None)
-    if callable(close_method):
-        try:
-            close_method()
-        except Exception:
-            logger.warning("failed to close mem0 vector store during fallback cleanup", exc_info=True)
-
 
 
 def _patch_vector_store_update_for_payload_only(vector_store) -> None:
@@ -473,6 +498,16 @@ def format_recall_result(results, effort_label: str, relations=None, relation_pr
     return "\n".join(lines)
 
 
+def _build_mem0_scope_kwargs(settings: dict) -> dict:
+    memory_settings = settings.get("memory", {})
+    agent_id = memory_settings.get("agent_id", "antlerbot")
+    scope = {"agent_id": agent_id}
+    if memory_settings.get("graph", {}).get("enabled"):
+        scope["user_id"] = agent_id
+    return scope
+
+
+
 def build_recall_tool(settings: dict):
     @tool("recall_memory", parse_docstring=False)
     def recall_memory(query: str, effort: str = "medium") -> str:
@@ -481,7 +516,7 @@ def build_recall_tool(settings: dict):
         threshold, max_memories, effort_label = get_effort_config(settings, effort)
         memory_settings = settings.get("memory", {})
         graph_settings = memory_settings.get("graph", {})
-        raw_results = store.search(query, agent_id=memory_settings.get("agent_id", "antlerbot"))
+        raw_results = store.search(query, **_build_mem0_scope_kwargs(settings))
         results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
         filtered = filter_search_results(
             results,
@@ -513,7 +548,7 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
         return None
 
     store = get_memory_store(settings)
-    raw_results = store.search(query, agent_id=memory_settings.get("agent_id", "antlerbot"))
+    raw_results = store.search(query, **_build_mem0_scope_kwargs(settings))
     results = raw_results.get("results", raw_results) if isinstance(raw_results, dict) else raw_results
     filtered = filter_search_results(
         results,
@@ -548,7 +583,7 @@ async def store_summary_async(summary_text: str, settings: dict) -> None:
         store = get_memory_store(settings)
         store.add(
             [{"role": "user", "content": summary_text}],
-            agent_id=settings.get("memory", {}).get("agent_id", "antlerbot"),
+            **_build_mem0_scope_kwargs(settings),
         )
     except Exception:
         logger.warning("mem0 summary store failed", exc_info=True)
