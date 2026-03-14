@@ -16,3 +16,4 @@
 | 2026-03-08 | [mem0-doc-mirror](mem0-doc-mirror/) | 为 mem0 的 Python 相关文档构建本地 Markdown 镜像 |
 | 2026-03-08 | [mem0-long-term-memory](mem0-long-term-memory/) | 增加基于 Mem0 的长期记忆能力，并补充会话级召回语义、元数据统计与归档记录 |
 | 2026-03-08 | [mem0-model-configuration](mem0-model-configuration/) | 为 Mem0 增加独立的 LLM 与 embedding 环境变量配置及回退逻辑 |
+| 2026-03-14 | [graph-memory-association](graph-memory-association/) | 为 Mem0 长期记忆增加图关联召回、图回退保护与持久化向量存储 |

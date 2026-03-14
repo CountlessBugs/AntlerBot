@@ -1,0 +1,10 @@
+8ba3916ebce23a98a85a0058f4dc9ac08c78e9b2 fix: fall back to vector-only mem0 on graph init failure
+0c3ab8a3dc92639c34a03beb42e2e1a1b56c14e0 feat: format graph memory relations in recall output
+e3d6315a66de1a19f87db6131b18d55842114466 feat: add graph associations to recall_memory
+87e7045384fa9525970b9c298293097bbd5c5a44 feat: add graph associations to automatic recall
+a539cf8bfd267b27f655f1b1371209c0f2cf4862 test: cover summary-only writes with graph memory enabled
+0751dec5d81496004e1798058a230af1c17d7a3d docs: document graph memory settings
+54d4e1784faec5062d1c0e0b0c995bc033b0a35e fix: respect graph context prefix and max hops
+017eb7b108ef994e4ba07443b3d5f151f2c7ecaf fix: persist mem0 vector store and preflight graph fallback
+e31f249e9d9ba2380f47e12d82b6a802f2fd0f88 test: isolate graph config normalization regression
+9bc8431540b653651e868a6c5f5a70bcf0e9ae9d fix: patch mem0 neo4j compatibility
