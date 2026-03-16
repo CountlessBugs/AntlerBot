@@ -84,7 +84,6 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `memory.auto_recall_system_prefix` | 自动检索注入到模型前的系统提示前缀 |
 | `memory.recall_<等级>_score_threshold` | `recall_memory` 工具在对应 effort 下的最低相似度阈值 |
 | `memory.recall_<等级>_max_memories` | `recall_memory` 工具在对应 effort 下的最大返回条数 |
-| `memory.reset_seen_on_summary` | 摘要或清空上下文后，是否重置本会话内的记忆计数与上下文锁定状态 |
 | `memory.vector_store.provider` | 向量存储后端提供者，透传给 Mem0，默认 `qdrant` |
 | `memory.vector_store.config` | 向量存储后端配置，默认持久化到 `data/mem0/qdrant` |
 

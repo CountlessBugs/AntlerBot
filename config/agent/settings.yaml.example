@@ -39,9 +39,6 @@ memory:
   recall_high_score_threshold: 0.55
   recall_high_max_memories: 10
 
-  # 每次摘要后是否重置“已见过”的长期记忆 ID 集合
-  reset_seen_on_summary: true
-
   vector_store:
     # 向量存储后端提供者，透传给 Mem0
     provider: "qdrant"

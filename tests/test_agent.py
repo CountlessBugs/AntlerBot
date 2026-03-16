@@ -468,6 +468,35 @@ async def test_complex_reschedule_does_not_update_token_usage():
 
 
 @pytest.mark.anyio
+async def test_summarize_all_resets_seen_ids_when_memory_enabled():
+    summary_ai = AIMessage("总结文本")
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = summary_ai
+    mock_llm.bind_tools.return_value = mock_llm
+    agent_mod._history = [HumanMessage("旧消息")]
+
+    settings = {
+        **agent_mod._SETTINGS_DEFAULTS,
+        "memory": {
+            **agent_mod._SETTINGS_DEFAULTS["memory"],
+            "enabled": True,
+            "auto_store_enabled": False,
+        },
+    }
+
+    with patch("src.agent.agent.init_chat_model", return_value=mock_llm), \
+         patch.dict("os.environ", {"LLM_PROVIDER": "openai", "LLM_MODEL": "gpt-4o"}), \
+         patch("src.agent.agent.load_settings", return_value=settings), \
+         patch("src.agent.agent.memory_mod.reset_session_memory_state") as reset_mock:
+        agent_mod._ensure_initialized()
+        graph = agent_mod._graph
+        state = {"messages": [HumanMessage("旧消息")], "reason": "session_timeout"}
+        await graph.ainvoke(state, config={"configurable": {"thread_id": "test-memory-reset"}})
+
+    reset_mock.assert_called_once()
+
+
+@pytest.mark.anyio
 async def test_summarize_all_schedules_async_memory_store_and_resets_seen_ids():
     summary_ai = AIMessage("总结文本")
     mock_llm = MagicMock()

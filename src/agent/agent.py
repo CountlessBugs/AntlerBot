@@ -57,7 +57,6 @@ _SETTINGS_DEFAULTS = {
         "recall_medium_max_memories": 6,
         "recall_high_score_threshold": 0.55,
         "recall_high_max_memories": 10,
-        "reset_seen_on_summary": True,
         "vector_store": {
             "provider": "qdrant",
             "config": {
@@ -287,7 +286,7 @@ def _ensure_initialized():
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
         settings = load_settings()
-        if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
+        if settings.get("memory", {}).get("enabled"):
             memory_mod.reset_session_memory_state()
         if (
             settings.get("memory", {}).get("enabled")
@@ -317,7 +316,7 @@ def _ensure_initialized():
         t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
         settings = load_settings()
-        if settings.get("memory", {}).get("enabled") and settings.get("memory", {}).get("reset_seen_on_summary"):
+        if settings.get("memory", {}).get("enabled"):
             memory_mod.reset_session_memory_state()
         if (
             settings.get("memory", {}).get("enabled")
