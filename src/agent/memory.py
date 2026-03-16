@@ -384,6 +384,154 @@ def build_recall_metadata_update(current_metadata: dict | None, recalled_at: str
     return metadata
 
 
+def build_memory_creation_metadata(created_at: str) -> dict:
+    return {
+        "created_at": created_at,
+        "last_updated_at": created_at,
+        "update_count": 0,
+    }
+
+
+def build_memory_creation_metadata_update(current_metadata: dict | None, created_at: str) -> dict:
+    if not isinstance(current_metadata, dict):
+        current_metadata = {}
+    metadata = dict(current_metadata)
+    metadata.update(build_memory_creation_metadata(created_at))
+    return metadata
+
+
+def build_memory_content_update_metadata(current_metadata: dict | None, updated_at: str, *, created_at: str | None = None) -> dict:
+    if not isinstance(current_metadata, dict):
+        current_metadata = {}
+    metadata = dict(current_metadata)
+    created_at = created_at or metadata.get("created_at") or updated_at
+    current_count = metadata.get("update_count", 0)
+    try:
+        current_count = int(current_count)
+    except (TypeError, ValueError):
+        current_count = 0
+    metadata["created_at"] = created_at
+    metadata["last_updated_at"] = updated_at
+    metadata["update_count"] = current_count + 1
+    return metadata
+
+
+def _resolve_original_created_at(store, memory_id: str, current_metadata: dict | None) -> str | None:
+    if isinstance(current_metadata, dict):
+        created_at = current_metadata.get("created_at")
+        if created_at:
+            current_created_at = str(created_at)
+        else:
+            current_created_at = None
+    else:
+        current_created_at = None
+
+    history_method = getattr(store, "history", None)
+    if not callable(history_method):
+        return current_created_at
+
+    try:
+        history_entries = history_method(memory_id=memory_id)
+    except TypeError:
+        try:
+            history_entries = history_method(memory_id)
+        except Exception:
+            return current_created_at
+    except Exception:
+        return current_created_at
+
+    if not isinstance(history_entries, list):
+        return current_created_at
+
+    created_candidates = []
+    for entry in history_entries:
+        if not isinstance(entry, dict):
+            continue
+        metadata = entry.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        created_at = metadata.get("created_at")
+        if created_at:
+            created_candidates.append(str(created_at))
+
+    if not created_candidates:
+        return current_created_at
+    return min(created_candidates)
+
+
+def try_update_memory_creation_metadata(store, memory_id: str, created_at: str) -> bool:
+    get_method = getattr(store, "get", None)
+    update_method = getattr(store, "update", None)
+    internal_update_method = getattr(store, "_update_memory", None)
+    if not callable(get_method) or (not callable(update_method) and not callable(internal_update_method)):
+        logger.info("mem0 memory store does not support get/update metadata operations")
+        return False
+
+    try:
+        current = get_method(memory_id=memory_id)
+        if not isinstance(current, dict):
+            logger.info("mem0 get did not return a mapping for creation metadata update")
+            return False
+
+        text = current.get("memory") or current.get("text")
+        if not text:
+            logger.info("mem0 creation metadata update skipped because original memory text is unavailable")
+            return False
+
+        metadata = build_memory_creation_metadata_update(current.get("metadata", {}), created_at)
+
+        if callable(internal_update_method):
+            internal_update_method(memory_id, text, {}, metadata=metadata)
+        else:
+            try:
+                update_method(memory_id, text, metadata=metadata)
+            except TypeError:
+                update_method(memory_id, {"memory": text, "metadata": metadata})
+        return True
+    except Exception:
+        logger.warning("mem0 creation metadata update failed", exc_info=True)
+        return False
+
+
+def try_update_memory_content_metadata(store, memory_id: str, updated_at: str) -> bool:
+    get_method = getattr(store, "get", None)
+    update_method = getattr(store, "update", None)
+    internal_update_method = getattr(store, "_update_memory", None)
+    if not callable(get_method) or (not callable(update_method) and not callable(internal_update_method)):
+        logger.info("mem0 memory store does not support get/update metadata operations")
+        return False
+
+    try:
+        current = get_method(memory_id=memory_id)
+        if not isinstance(current, dict):
+            logger.info("mem0 get did not return a mapping for content metadata update")
+            return False
+
+        text = current.get("memory") or current.get("text")
+        if not text:
+            logger.info("mem0 content metadata update skipped because original memory text is unavailable")
+            return False
+
+        original_created_at = _resolve_original_created_at(store, memory_id, current.get("metadata", {}))
+        metadata = build_memory_content_update_metadata(
+            current.get("metadata", {}),
+            updated_at,
+            created_at=original_created_at,
+        )
+
+        if callable(internal_update_method):
+            internal_update_method(memory_id, text, {}, metadata=metadata)
+        else:
+            try:
+                update_method(memory_id, text, metadata=metadata)
+            except TypeError:
+                update_method(memory_id, {"memory": text, "metadata": metadata})
+        return True
+    except Exception:
+        logger.warning("mem0 content metadata update failed", exc_info=True)
+        return False
+
+
 def try_update_memory_recall_metadata(store, memory_id: str, recalled_at: str) -> bool:
     get_method = getattr(store, "get", None)
     update_method = getattr(store, "update", None)
@@ -581,10 +729,23 @@ def build_auto_recall_system_message(history: list[BaseMessage], settings: dict)
 async def store_summary_async(summary_text: str, settings: dict) -> None:
     try:
         store = get_memory_store(settings)
-        store.add(
+        created_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        result = store.add(
             [{"role": "user", "content": summary_text}],
             **_build_mem0_scope_kwargs(settings),
         )
+        operations = result.get("results", []) if isinstance(result, dict) else []
+        for item in operations:
+            if not isinstance(item, dict):
+                continue
+            memory_id = item.get("id")
+            if not memory_id:
+                continue
+            event = item.get("event")
+            if event == "ADD":
+                try_update_memory_creation_metadata(store, str(memory_id), created_at)
+            elif event == "UPDATE":
+                try_update_memory_content_metadata(store, str(memory_id), created_at)
     except Exception:
         logger.warning("mem0 summary store failed", exc_info=True)
 

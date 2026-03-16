@@ -131,6 +131,48 @@ def test_build_recall_metadata_update_defaults_count_when_missing():
     assert updated["last_recalled_at"] == "2026-03-08T12:00:00Z"
 
 
+def test_build_memory_creation_metadata_sets_creation_fields_only():
+    created = memory.build_memory_creation_metadata("2026-03-08T12:00:00Z")
+    assert created == {
+        "created_at": "2026-03-08T12:00:00Z",
+        "last_updated_at": "2026-03-08T12:00:00Z",
+        "update_count": 0,
+    }
+
+
+def test_build_memory_content_update_metadata_preserves_created_at_and_increments_count():
+    updated = memory.build_memory_content_update_metadata(
+        {
+            "created_at": "2026-03-01T00:00:00Z",
+            "last_updated_at": "2026-03-05T00:00:00Z",
+            "update_count": 2,
+            "tag": "x",
+        },
+        updated_at="2026-03-08T12:00:00Z",
+    )
+    assert updated["created_at"] == "2026-03-01T00:00:00Z"
+    assert updated["last_updated_at"] == "2026-03-08T12:00:00Z"
+    assert updated["update_count"] == 3
+    assert updated["tag"] == "x"
+
+
+def test_build_recall_metadata_update_does_not_touch_content_update_fields():
+    updated = memory.build_recall_metadata_update(
+        {
+            "created_at": "2026-03-01T00:00:00Z",
+            "last_updated_at": "2026-03-05T00:00:00Z",
+            "update_count": 2,
+            "recall_count": 1,
+        },
+        recalled_at="2026-03-08T12:00:00Z",
+    )
+    assert updated["created_at"] == "2026-03-01T00:00:00Z"
+    assert updated["last_updated_at"] == "2026-03-05T00:00:00Z"
+    assert updated["update_count"] == 2
+    assert updated["recall_count"] == 2
+    assert updated["last_recalled_at"] == "2026-03-08T12:00:00Z"
+
+
 def test_auto_recall_allows_repeat_results_but_counts_once_per_session():
     class RepeatMemory:
         def search(self, query, **kwargs):
@@ -733,9 +775,17 @@ def test_store_summary_async_uses_summary_only_with_graph_enabled():
     class FakeStore:
         def __init__(self):
             self.calls = []
+            self.updated = None
 
-        def add(self, messages, agent_id=None, user_id=None):
-            self.calls.append({"messages": messages, "agent_id": agent_id, "user_id": user_id})
+        def add(self, messages, agent_id=None, user_id=None, metadata=None):
+            self.calls.append({"messages": messages, "agent_id": agent_id, "user_id": user_id, "metadata": metadata})
+            return {"results": [{"id": "mem-1", "event": "ADD", "memory": "总结文本"}]}
+
+        def get(self, memory_id):
+            return {"memory": "总结文本", "metadata": {"tag": "x"}}
+
+        def update(self, memory_id, data):
+            self.updated = {"memory_id": memory_id, "data": data}
 
     store = FakeStore()
     settings = {
@@ -753,8 +803,130 @@ def test_store_summary_async_uses_summary_only_with_graph_enabled():
             "messages": [{"role": "user", "content": "总结文本"}],
             "agent_id": "antlerbot",
             "user_id": "antlerbot",
+            "metadata": None,
         }
     ]
+    assert store.updated is not None
+    assert store.updated["memory_id"] == "mem-1"
+    assert store.updated["data"]["memory"] == "总结文本"
+    assert store.updated["data"]["metadata"]["tag"] == "x"
+    assert store.updated["data"]["metadata"]["update_count"] == 0
+    assert store.updated["data"]["metadata"]["created_at"] == store.updated["data"]["metadata"]["last_updated_at"]
+
+
+def test_store_summary_async_updates_content_metadata_when_mem0_reports_update():
+    class FakeStore:
+        def __init__(self):
+            self.add_calls = []
+            self.updated = None
+
+        def add(self, messages, agent_id=None, user_id=None, metadata=None):
+            self.add_calls.append({"messages": messages, "agent_id": agent_id, "user_id": user_id, "metadata": metadata})
+            return {
+                "results": [
+                    {
+                        "id": "mem-1",
+                        "event": "UPDATE",
+                        "memory": "新总结",
+                        "previous_memory": "旧总结",
+                    }
+                ]
+            }
+
+        def get(self, memory_id):
+            return {
+                "memory": "新总结",
+                "metadata": {
+                    "created_at": "2026-03-01T00:00:00Z",
+                    "last_updated_at": "2026-03-05T00:00:00Z",
+                    "update_count": 2,
+                    "tag": "x",
+                },
+            }
+
+        def update(self, memory_id, data):
+            self.updated = {"memory_id": memory_id, "data": data}
+
+    store = FakeStore()
+    with patch("src.agent.memory.get_memory_store", return_value=store):
+        asyncio.run(memory.store_summary_async("新总结", {"memory": {"agent_id": "antlerbot"}}))
+
+    assert store.add_calls[0]["metadata"] is None
+    assert store.updated is not None
+    assert store.updated["memory_id"] == "mem-1"
+    assert store.updated["data"]["memory"] == "新总结"
+    assert store.updated["data"]["metadata"]["created_at"] == "2026-03-01T00:00:00Z"
+    assert store.updated["data"]["metadata"]["last_updated_at"] != "2026-03-05T00:00:00Z"
+    assert store.updated["data"]["metadata"]["update_count"] == 3
+    assert store.updated["data"]["metadata"]["tag"] == "x"
+
+
+def test_store_summary_async_preserves_original_created_at_when_update_get_returns_polluted_metadata():
+    class FakeStore:
+        def __init__(self):
+            self.add_calls = []
+            self.updated = None
+
+        def add(self, messages, agent_id=None, user_id=None, metadata=None):
+            self.add_calls.append({"messages": messages, "agent_id": agent_id, "user_id": user_id, "metadata": metadata})
+            return {
+                "results": [
+                    {
+                        "id": "mem-1",
+                        "event": "UPDATE",
+                        "memory": "新总结",
+                        "previous_memory": "旧总结",
+                    }
+                ]
+            }
+
+        def history(self, memory_id):
+            return [
+                {"memory": "旧总结", "metadata": {"created_at": "2026-03-01T00:00:00Z"}},
+                {"memory": "新总结", "metadata": {"created_at": "2026-03-08T12:00:00Z"}},
+            ]
+
+        def get(self, memory_id):
+            return {
+                "memory": "新总结",
+                "metadata": {
+                    "created_at": "2026-03-08T12:00:00Z",
+                    "last_updated_at": "2026-03-05T00:00:00Z",
+                    "update_count": 2,
+                },
+            }
+
+        def update(self, memory_id, data):
+            self.updated = {"memory_id": memory_id, "data": data}
+
+    store = FakeStore()
+    with patch("src.agent.memory.get_memory_store", return_value=store):
+        asyncio.run(memory.store_summary_async("新总结", {"memory": {"agent_id": "antlerbot"}}))
+
+    assert store.updated is not None
+    assert store.updated["data"]["metadata"]["created_at"] == "2026-03-01T00:00:00Z"
+
+
+def test_store_summary_async_does_not_increment_update_count_for_add_event():
+    class FakeStore:
+        def __init__(self):
+            self.updated = None
+
+        def add(self, messages, agent_id=None, user_id=None, metadata=None):
+            return {"results": [{"id": "mem-1", "event": "ADD", "memory": "总结文本"}]}
+
+        def get(self, memory_id):
+            return {"memory": "总结文本", "metadata": {"created_at": "2026-03-01T00:00:00Z", "update_count": 9}}
+
+        def update(self, memory_id, data):
+            self.updated = {"memory_id": memory_id, "data": data}
+
+    with patch("src.agent.memory.get_memory_store", return_value=FakeStore()) as store_patch:
+        asyncio.run(memory.store_summary_async("总结文本", {"memory": {"agent_id": "antlerbot"}}))
+
+    assert store_patch.return_value.updated is not None
+    assert store_patch.return_value.updated["data"]["metadata"]["update_count"] == 0
+    assert store_patch.return_value.updated["data"]["metadata"]["created_at"] == store_patch.return_value.updated["data"]["metadata"]["last_updated_at"]
 
 
 def test_manual_recall_includes_relations_when_graph_manual_recall_enabled():
