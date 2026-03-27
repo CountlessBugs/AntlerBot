@@ -17,3 +17,4 @@
 | 2026-03-08 | [mem0-long-term-memory](mem0-long-term-memory/) | 增加基于 Mem0 的长期记忆能力，并补充会话级召回语义、元数据统计与归档记录 |
 | 2026-03-08 | [mem0-model-configuration](mem0-model-configuration/) | 为 Mem0 增加独立的 LLM 与 embedding 环境变量配置及回退逻辑 |
 | 2026-03-14 | [graph-memory-association](graph-memory-association/) | 为 Mem0 长期记忆增加图关联召回、图回退保护与持久化向量存储 |
+| 2026-03-27 | [docker-deployment](docker-deployment/) | 为 AntlerBot 增加 Docker 部署方案，含外部 NapCat 接入、Neo4j 编排与详细运维文档 |
