@@ -49,7 +49,7 @@
 
 ## 第一步：创建共享网络
 
-NapCat 与 AntlerBot 不在同一个 compose 中时，最稳妥的做法是让它们加入同一个外部 Docker 网络。
+为了让 AntlerBot 容器能够访问外部独立运行的 NapCat 容器，我们需要创建一个 Docker 共享网络。网络名称默认为 `antlerbot-shared`。
 
 先创建共享网络：
 
@@ -59,31 +59,20 @@ docker network create antlerbot-shared
 
 如果网络已存在，Docker 会提示已存在；这种情况下直接继续即可。
 
-## 第二步：启动 NapCat，并设置唯一容器名
+如果需要部署多个 AntlerBot 实例，每套部署都应使用不同的共享网络，网络名称需要在 `docker-compose.yml` 中进行修改，将所有的 `antlerbot-shared` 替换为新的网络名称即可。
 
-### 为什么不能使用随机容器名
-
-如果直接运行 NapCat 而不指定容器名，Docker 可能会生成随机容器名。这样你很难在 AntlerBot 的 `.env` 中稳定填写 `NAPCAT_WS_URI`。
-
-### 为什么也不建议所有实例都写死成同一个名字
-
-如果同一台机器上要部署多套 AntlerBot，那么每套实例对应的 NapCat 容器名都应该是**唯一的**。否则容器名会冲突，也无法让不同 AntlerBot 清楚地区分自己应该连接哪个 NapCat。
-
-因此，推荐做法是：
-
-- 为**当前这套部署**选择一个唯一 NapCat 容器名
-- 把这个名字同步写入当前这套 AntlerBot 的 `NAPCAT_WS_URI`
+## 第二步：启动 NapCat
 
 ### 启动要求
 
 无论你使用什么方式启动 NapCat，都要满足以下条件：
 
 - 容器加入 `antlerbot-shared` 网络
-- 容器名对当前机器来说唯一，例如 `napcat-bot-a`
+- 容器名唯一，例如 `napcat-bot-a`
 - NapCat 已正常登录 QQ
-- 后续在 WebUI 中创建 WebSocket 服务器
+- 已经在 NapCat WebUI 中创建 WebSocket 服务器
 
-如果你使用 `docker run`，关键点类似这样：
+如果你使用 `docker run`，命令应类似这样：
 
 ```bash
 docker run -d \
@@ -92,13 +81,7 @@ docker run -d \
   ...你的其他 NapCat 参数...
 ```
 
-如果你使用单独的 NapCat compose，也请确保：
-
-- `container_name: napcat-bot-a`
-- `networks:` 中包含 `antlerbot-shared`
-- 该网络声明为外部网络
-
-也就是说，AntlerBot `.env` 里的：
+此外，还需要把 Napcat 容器名写入当前这套 AntlerBot .env 的 `NAPCAT_WS_URI`
 
 ```dotenv
 NAPCAT_WS_URI=ws://napcat-bot-a:3001
@@ -175,7 +158,7 @@ NEO4J_AUTH=neo4j/your_neo4j_password
 - `NAPCAT_WS_URI` 中的主机名必须与当前这套部署使用的 NapCat 容器名一致
 - `NAPCAT_WS_TOKEN` 必须与 NapCat WebUI 中创建的 WebSocket 服务器 token 一致
 - `MEM0_GRAPH_NEO4J_URL` 在 Docker 部署中通常使用 `bolt://neo4j:7687`
-- `NEO4J_AUTH` 同时作为 Neo4j 容器认证配置和 AntlerBot 图记忆连接凭据来源，格式为 `用户名/密码`
+- `NEO4J_AUTH` 同时作为 Neo4j 容器认证配置和 AntlerBot 图记忆连接凭据来源，格式为 `用户名/密码`。用户名必须为 `neo4j`，密码可以自定义。
 - `config/agent/settings.yaml` 中不应再写死 Neo4j 的 URL、用户名、密码，实际连接参数由 `.env` 提供
 
 ## 第五步：准备挂载目录与配置文件
@@ -218,6 +201,8 @@ docker compose ps
 
 - `neo4j` 处于运行状态
 - `antlerbot` 已启动
+
+注：如果需要部署多个 AntlerBot 实例，记得在 `docker-compose.yml` 中修改服务名称和网络配置，确保每套部署使用不同的服务名称和共享网络。服务名称即两处 `container_name`，关于共享网络的修改请参考第一步。
 
 ## 第七步：部署后检查
 
@@ -312,7 +297,7 @@ cp .env.example .env
 
 优先检查：
 
-1. `NEO4J_AUTH` 是否与 Neo4j 当前实际认证信息一致
+1. `NEO4J_AUTH` 是否与 Neo4j 当前实际认证信息一致，用户名必须为 `neo4j`
 2. `data/neo4j/data` 是否存在旧数据导致认证信息不一致
 3. 容器日志中是否有数据库初始化失败信息
 
@@ -330,11 +315,3 @@ docker compose run --rm --no-deps --entrypoint python antlerbot -c 'from pathlib
 - `ws_token` 是否已注入
 - `skip_setup: true` 是否存在
 - `remote_mode: true` 是否存在
-
-## 本地运行兼容性
-
-本次 Docker 部署方案不会把 Docker 专属地址写死到默认运行逻辑中。
-
-- 本地运行仍可继续使用原有方式启动
-- Docker 部署所需的 Neo4j 与 NapCat 地址通过 `.env` 注入
-- `src/agent/memory.py` 仅在环境变量存在时覆盖图数据库连接配置

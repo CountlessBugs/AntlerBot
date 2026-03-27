@@ -1,6 +1,7 @@
 services:
   neo4j:
     image: neo4j:5-community
+    container_name: neo4j-antlerbot
     restart: unless-stopped
     environment:
       NEO4J_AUTH: ${NEO4J_AUTH}
@@ -22,6 +23,7 @@ services:
   antlerbot:
     build:
       context: .
+    container_name: antlerbot
     restart: unless-stopped
     depends_on:
       neo4j:
