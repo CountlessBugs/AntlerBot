@@ -1,0 +1,46 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH}
+    volumes:
+      - ./data/neo4j/data:/data
+      - ./logs/neo4j:/logs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "user=\"$${NEO4J_AUTH%%/*}\" && password=\"$${NEO4J_AUTH#*/}\" && cypher-shell -u \"$$user\" -p \"$$password\" 'RETURN 1;' || exit 1",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+    networks:
+      - antlerbot-shared
+
+  antlerbot:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NCATBOT_CONFIG_PATH: /tmp/ncatbot.yaml
+      NAPCAT_WS_URI: ${NAPCAT_WS_URI}
+      NAPCAT_WS_TOKEN: ${NAPCAT_WS_TOKEN}
+      MEM0_GRAPH_NEO4J_URL: ${MEM0_GRAPH_NEO4J_URL}
+      NEO4J_AUTH: ${NEO4J_AUTH}
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - antlerbot-shared
+
+networks:
+  antlerbot-shared:
+    external: true

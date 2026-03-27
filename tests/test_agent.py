@@ -368,13 +368,12 @@ def test_load_settings_deep_merges_memory_graph_defaults(tmp_path):
 
 def test_load_settings_preserves_graph_config_defaults_when_partially_overridden(tmp_path):
     f = tmp_path / "settings.yaml"
-    f.write_text("memory:\n  graph:\n    config:\n      url: bolt://graph.example:7687\n", encoding="utf-8")
+    f.write_text("memory:\n  graph:\n    config:\n      database: customdb\n", encoding="utf-8")
 
     with patch("src.agent.agent.SETTINGS_PATH", str(f)):
         settings = agent_mod.load_settings()
 
-    assert settings["memory"]["graph"]["config"]["url"] == "bolt://graph.example:7687"
-    assert settings["memory"]["graph"]["config"]["username"] == "neo4j"
+    assert settings["memory"]["graph"]["config"]["database"] == "customdb"
 
 
 def test_clear_history():

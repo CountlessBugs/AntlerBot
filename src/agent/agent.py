@@ -69,9 +69,6 @@ _SETTINGS_DEFAULTS = {
             "enabled": False,
             "provider": "neo4j",
             "config": {
-                "url": "bolt://localhost:7687",
-                "username": "neo4j",
-                "password": "password",
                 "database": "neo4j",
             },
             "auto_recall_enabled": True,

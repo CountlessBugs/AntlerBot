@@ -1,0 +1,16 @@
+.git
+.claude
+.worktrees
+.venv
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+config/
+data/
+logs/
+napcat/
+ncatbot_plugins/
