@@ -89,6 +89,23 @@ def _get_env(name: str) -> str | None:
     return value if value else None
 
 
+def _parse_neo4j_auth(value: str | None) -> tuple[str | None, str | None]:
+    if not value or "/" not in value:
+        return None, None
+    username, password = value.split("/", 1)
+    return (username or None), (password or None)
+
+
+def _apply_graph_env_overrides(config: dict) -> dict:
+    neo4j_auth_username, neo4j_auth_password = _parse_neo4j_auth(_get_env("NEO4J_AUTH"))
+    return {
+        **config,
+        "url": _get_env("MEM0_GRAPH_NEO4J_URL") or config.get("url"),
+        "username": neo4j_auth_username or config.get("username"),
+        "password": neo4j_auth_password or config.get("password"),
+    }
+
+
 def _require_mem0_field(value: str | None, env_name: str) -> str:
     if value:
         return value
@@ -216,6 +233,9 @@ def _resolve_graph_store_config(settings: dict) -> dict | None:
         key: str(value) if value is not None and not isinstance(value, str) else value
         for key, value in dict(graph_settings.get("config", {})).items()
     }
+    if provider == "neo4j":
+        config = _apply_graph_env_overrides(config)
+
     required_fields_by_provider = {
         "neo4j": ("url", "username", "password"),
         "memgraph": ("url", "username", "password"),

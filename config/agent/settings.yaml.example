@@ -58,9 +58,6 @@ memory:
 
     # 图存储后端配置，透传给 Mem0
     config:
-      url: bolt://localhost:7687
-      username: "neo4j"
-      password: "password"
       database: "neo4j"
 
     # 是否在自动检索时追加关系联想

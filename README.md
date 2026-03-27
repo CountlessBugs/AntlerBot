@@ -10,6 +10,15 @@ cp .env.example .env
 python main.py
 ```
 
+## 🐳 Docker 部署
+
+生产环境 Docker 部署说明见 [docs/deployment/docker.md](docs/deployment/docker.md)。
+
+该方案使用：
+- `Dockerfile` 构建 AntlerBot 生产镜像
+- `docker-compose.yml` 编排 `antlerbot` 与 `neo4j`
+- 外部独立运行的 NapCat 容器，通过连接模式接入
+
 ## 📦 依赖管理
 
 本项目使用 [pip-tools](https://github.com/jazzband/pip-tools) 管理依赖：

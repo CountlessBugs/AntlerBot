@@ -46,6 +46,10 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `MEM0_EMBEDDER_MODEL` | 可选，Mem0 embedding 模型名称，默认 `text-embedding-3-small` |
 | `MEM0_EMBEDDER_API_KEY` | 可选，Mem0 embedding API Key；不设则回退到 `OPENAI_API_KEY` |
 | `MEM0_EMBEDDER_BASE_URL` | 可选，Mem0 embedding API 端点；不设则回退到 `OPENAI_BASE_URL` |
+| `NAPCAT_WS_URI` | Docker 部署时外部 NapCat WebSocket 地址 |
+| `NAPCAT_WS_TOKEN` | Docker 部署时外部 NapCat WebSocket token |
+| `MEM0_GRAPH_NEO4J_URL` | 可选，图记忆使用的 Neo4j Bolt 地址；设置后覆盖 `settings.yaml` 中的 `memory.graph.config.url` |
+| `NEO4J_AUTH` | Docker Compose 中 Neo4j 认证配置，通常为 `neo4j/<password>`；当前 Docker 方案下 AntlerBot 也从中解析图记忆所需的用户名和密码 |
 
 ### 1.3 `prompt.txt`
 
@@ -93,7 +97,7 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 |------|------|
 | `memory.graph.enabled` | 是否启用 Mem0 图记忆联想增强 |
 | `memory.graph.provider` | 图存储后端提供者，透传给 Mem0 |
-| `memory.graph.config` | 图存储后端配置（如 Neo4j 连接信息），透传给 Mem0 |
+| `memory.graph.config` | 图存储后端配置；当前仅由 `settings.yaml` 中的 `database` 控制，连接地址通过 `MEM0_GRAPH_NEO4J_URL` 提供，用户名和密码通过 `NEO4J_AUTH` 提供 |
 | `memory.graph.auto_recall_enabled` | 是否在自动检索时追加图关系联想 |
 | `memory.graph.manual_recall_enabled` | 是否在 `recall_memory` 工具中追加图关系联想 |
 | `memory.graph.context_max_relations` | 单次注入上下文时最多保留多少条关系联想 |
@@ -147,7 +151,7 @@ docker run -d \
 
 ### 4.3 在 AntlerBot 中配置图数据库连接
 
-编辑 `config/agent/settings.yaml`：
+`config/agent/settings.yaml` 中的图记忆配置主要保留行为项和 `database`，例如：
 
 ```yaml
 memory:
@@ -155,18 +159,25 @@ memory:
     enabled: true
     provider: "neo4j"
     config:
-      url: bolt://localhost:7687
-      username: "neo4j"
-      password: "your-password"
       database: "neo4j"
 ```
 
+实际连接参数推荐通过环境变量提供：
+
+```dotenv
+MEM0_GRAPH_NEO4J_URL=bolt://localhost:7687
+NEO4J_AUTH=neo4j/your-password
+```
+
+这样可以避免把 Neo4j 凭据直接写入仓库配置文件；在 Docker 部署中也可以无缝切换到 `bolt://neo4j:7687` 等容器内网地址。
+
 请确保：
 
-- `username` 与 Docker 启动命令中的 `NEO4J_AUTH` 用户名一致，默认为 `neo4j`。
-- `password` 与 Docker 启动命令中的 `NEO4J_AUTH` 密码一致。
-- `url` 指向 Neo4j 的 Bolt 地址；默认本机部署通常为 `bolt://localhost:7687`。
-- `database` 默认使用 `neo4j`。
+- `NEO4J_AUTH` 中的用户名和密码与 Neo4j 实际认证信息一致，格式为 `用户名/密码`
+- `MEM0_GRAPH_NEO4J_URL` 指向正确的 Bolt 地址；本机部署通常为 `bolt://localhost:7687`，Docker Compose 内通常为 `bolt://neo4j:7687`
+- `database` 默认使用 `neo4j`
+
+如需 Docker 部署示例，另见 [docs/deployment/docker.md](deployment/docker.md)。
 
 ### 4.4 启用后的行为说明
 

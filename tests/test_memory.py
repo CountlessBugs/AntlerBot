@@ -1456,6 +1456,109 @@ def test_get_memory_store_falls_back_when_graph_config_is_invalid_before_mem0_in
 
 
 
+def test_resolve_graph_store_config_prefers_env_over_yaml(monkeypatch):
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "from-settings-user",
+                    "password": "from-settings-pass",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    monkeypatch.setenv("MEM0_GRAPH_NEO4J_URL", "bolt://neo4j:7687")
+    monkeypatch.setenv("NEO4J_AUTH", "graph-user/graph-pass")
+    monkeypatch.setattr(memory, "_verify_graph_connectivity", lambda provider, config: None)
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()):
+        graph_store = memory._resolve_graph_store_config(settings)
+
+    assert graph_store == {
+        "provider": "neo4j",
+        "config": {
+            "url": "bolt://neo4j:7687",
+            "username": "graph-user",
+            "password": "graph-pass",
+            "database": "neo4j",
+        },
+    }
+
+
+
+def test_resolve_graph_store_config_uses_neo4j_auth_when_graph_credentials_are_unset(monkeypatch):
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "from-settings-user",
+                    "password": "from-settings-pass",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    monkeypatch.setenv("NEO4J_AUTH", "neo4j/graph-pass")
+    monkeypatch.setattr(memory, "_verify_graph_connectivity", lambda provider, config: None)
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()):
+        graph_store = memory._resolve_graph_store_config(settings)
+
+    assert graph_store == {
+        "provider": "neo4j",
+        "config": {
+            "url": "bolt://localhost:7687",
+            "username": "neo4j",
+            "password": "graph-pass",
+            "database": "neo4j",
+        },
+    }
+
+
+
+def test_resolve_graph_store_config_falls_back_to_yaml_when_neo4j_auth_is_missing(monkeypatch):
+    settings = {
+        "memory": {
+            "graph": {
+                "enabled": True,
+                "provider": "neo4j",
+                "config": {
+                    "url": "bolt://localhost:7687",
+                    "username": "from-settings-user",
+                    "password": "from-settings-pass",
+                    "database": "neo4j",
+                },
+            }
+        }
+    }
+
+    monkeypatch.delenv("NEO4J_AUTH", raising=False)
+    monkeypatch.setattr(memory, "_verify_graph_connectivity", lambda provider, config: None)
+
+    with patch("importlib.import_module", return_value=SimpleNamespace()):
+        graph_store = memory._resolve_graph_store_config(settings)
+
+    assert graph_store == {
+        "provider": "neo4j",
+        "config": {
+            "url": "bolt://localhost:7687",
+            "username": "from-settings-user",
+            "password": "from-settings-pass",
+            "database": "neo4j",
+        },
+    }
+
+
+
 def test_get_memory_store_skips_graph_init_when_graph_dependency_is_missing(monkeypatch, caplog):
     init_configs = []
 
