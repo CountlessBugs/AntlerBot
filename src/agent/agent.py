@@ -138,13 +138,16 @@ def load_settings() -> dict:
     return merged
 
 
-def _now() -> datetime:
+def get_current_time() -> datetime:
     """Return current datetime in the configured timezone, or local timezone if not set."""
     settings = load_settings()
     tz = (settings.get("timezone") or "").strip()
     if not tz:
         return datetime.now()
     return datetime.now(ZoneInfo(tz))
+
+# Legacy alias for internal callers
+_now = get_current_time
 
 
 _llm = None

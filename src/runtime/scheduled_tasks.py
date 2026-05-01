@@ -201,7 +201,7 @@ class _RescheduleOutput(BaseModel):
 
 
 async def _reschedule(task: dict) -> None:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = agent.get_current_time().strftime("%Y-%m-%d")
     timer_prompt = (
         f"你是一个定时任务调度器。今天是{today}。"
         "根据任务信息决定下次触发时间或取消任务。"
