@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
@@ -27,6 +28,7 @@ SETTINGS_PATH = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "config", "agent", "settings.yaml")
 )
 _SETTINGS_DEFAULTS = {
+    "timezone": "",
     "temperature": 1.0,
     "context_limit_tokens": 32000,
     "timeout_summarize_seconds": 1800,
@@ -135,6 +137,16 @@ def load_settings() -> dict:
     }
     return merged
 
+
+def _now() -> datetime:
+    """Return current datetime in the configured timezone, or local timezone if not set."""
+    settings = load_settings()
+    tz = (settings.get("timezone") or "").strip()
+    if not tz:
+        return datetime.now()
+    return datetime.now(ZoneInfo(tz))
+
+
 _llm = None
 _graph = None
 _history: list[BaseMessage] = []
@@ -239,7 +251,7 @@ def _ensure_initialized():
         if system_prompt:
             msgs = [SystemMessage(system_prompt)] + msgs
         if not isinstance(msgs[-1], ToolMessage):
-            msgs = msgs + [SystemMessage(f"当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")]
+            msgs = msgs + [SystemMessage(f"当前时间：{_now().strftime('%Y-%m-%d %H:%M:%S')}")]
         response = llm_with_tools.invoke(msgs)
         return {"messages": [response]}
 
@@ -280,7 +292,7 @@ def _ensure_initialized():
                 + _current_token_usage
                 - meta.get("input_tokens", 0)
             )
-        t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        t = _now().strftime('%Y-%m-%d %H:%M:%S')
         wrapped = f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>"
         settings = load_settings()
         if settings.get("memory", {}).get("enabled"):
@@ -310,7 +322,7 @@ def _ensure_initialized():
                 + _current_token_usage
                 - meta.get("input_tokens", 0)
             )
-        t = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        t = _now().strftime('%Y-%m-%d %H:%M:%S')
         summary_msg = SystemMessage(f"<context-summary summary_time={t}>\n{summary.content}\n</context-summary>")
         settings = load_settings()
         if settings.get("memory", {}).get("enabled"):

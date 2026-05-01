@@ -2,7 +2,9 @@ import asyncio
 import logging
 import pytest
 import src.agent.agent as agent_mod
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
@@ -560,3 +562,31 @@ async def test_auto_summarize_records_token_usage():
     state = {"messages": [HumanMessage("hello")], "reason": "user_message"}
     await graph.ainvoke(state, config={"configurable": {"thread_id": "test3"}})
     assert agent_mod._current_token_usage == 50
+
+
+def test_now_uses_local_timezone_when_config_is_empty(tmp_path):
+    """When timezone is empty, _now() returns a naive datetime from the local clock."""
+    with patch("src.agent.agent.SETTINGS_PATH", str(tmp_path / "settings.yaml")):
+        result = agent_mod._now()
+    assert isinstance(result, datetime)
+    assert result.tzinfo is None
+
+
+def test_now_uses_configured_timezone(tmp_path):
+    """When timezone is set, _now() returns a timezone-aware datetime."""
+    f = tmp_path / "settings.yaml"
+    f.write_text("timezone: Asia/Shanghai\n", encoding="utf-8")
+    with patch("src.agent.agent.SETTINGS_PATH", str(f)):
+        result = agent_mod._now()
+    assert isinstance(result, datetime)
+    assert result.tzinfo is not None
+    assert result.tzinfo == ZoneInfo("Asia/Shanghai")
+
+
+def test_now_raises_on_invalid_timezone(tmp_path):
+    """When timezone is invalid, _now() raises ZoneInfoNotFoundError."""
+    f = tmp_path / "settings.yaml"
+    f.write_text("timezone: Invalid/Zone\n", encoding="utf-8")
+    with patch("src.agent.agent.SETTINGS_PATH", str(f)):
+        with pytest.raises(ZoneInfoNotFoundError):
+            agent_mod._now()

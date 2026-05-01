@@ -6,6 +6,10 @@ timeout_clear_seconds: 3600
 # 被引用消息的最大长度，超过该长度被截断
 reply_quote_truncate_length: 50
 
+# 手动指定时区（IANA 时区名，如 "Asia/Shanghai"、"Europe/London"）
+# 留空则使用系统本地时区
+timezone: ""
+
 memory:
   # 是否启用长期记忆（Mem0）
   enabled: false

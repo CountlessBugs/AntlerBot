@@ -68,6 +68,7 @@ cp config/agent/prompt.txt.example config/agent/prompt.txt
 | `timeout_summarize_seconds` | 无消息多少秒后触发会话摘要 |
 | `timeout_clear_seconds` | 会话摘要后多少秒清空历史 |
 | `reply_quote_truncate_length` | 回复消息引用的最大截断长度 |
+| `timezone` | 手动指定时区（IANA 时区名，如 `Asia/Shanghai`、`Europe/London`），留空使用系统本地时区 |
 | `memory.enabled` | 是否启用 Mem0 长期记忆 |
 | `media.timeout` | 媒体处理超时时间（秒） |
 | `media.max_file_size_mb` | 超过此大小的文件直接跳过 |
